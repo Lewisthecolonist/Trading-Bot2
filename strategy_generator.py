@@ -11,7 +11,7 @@ class StrategyGenerator:
         self.config = config
         genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY'])
         self.model = genai.GenerativeModel('gemini-pro')
-        self.strategies = strategies
+        self.strategies = {}
 
     def generate_strategies(self, market_data: pd.DataFrame) -> List[Strategy]:
         prompt = self._create_prompt(market_data)
