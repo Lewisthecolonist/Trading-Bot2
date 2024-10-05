@@ -2,6 +2,7 @@ import os
 from decimal import Decimal
 from typing import Dict, Optional
 from web3 import Web3
+from web3 import middleware
 from web3.middleware import async_geth_poa_middleware
 from web3.providers import AsyncHTTPProvider
 from eth_account import Account
@@ -16,7 +17,7 @@ class Wallet:
         self.exchange = exchange
         self.provider_url = os.getenv("ETHEREUM_PROVIDER_URL")
         self.w3 = Web3(AsyncHTTPProvider(self.provider_url), modules={'eth': (AsyncHTTPProvider,)}, middlewares=[])
-        self.w3.middleware_onion.inject(async_geth_poa_middleware, layer=0)
+        self.w3.middleware_onion.inject(middleware.async_geth_poa_middleware, layer=0)
         
         self.account: LocalAccount = Account.from_key(os.getenv("PRIVATE_KEY"))
         self.balances: Dict[str, Decimal] = {}

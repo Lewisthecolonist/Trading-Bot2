@@ -11,7 +11,7 @@ class Config:
         self.BASE_PARAMS = {
             # API Keys
             'CRYPTO_COMPARE_API_KEY': os.getenv("CRYPTO_COMPARE_API_KEY"),
-            'GLASSNODE_API_KEY': os.getenv('your_glassnode_api_key'),
+            'MORALIS_API_KEY': os.getenv('MORALIS_API_KEY'),
             'KRAKEN_API_KEY': os.getenv('API_KEY'),
             'KRAKEN_SECRET_KEY': os.getenv('KRAKEN_SECRET_KEY'),
             'GOOGLE_AI_API_KEY': genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY']),
