@@ -1,23 +1,22 @@
 from config import Config
-import ccxt  # For fetching market data
-import ta  # For technical indicators
-import requests  # For API calls to sentiment and on-chain data providers
-import san
-from glassnode import GlassnodeClient
+import ccxt
+import ta
+import requests
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from moralis import evm_api
+import san
 
 class RiskManager:
     def __init__(self, config):
         self.config = config
 
         # Initialize APIs
-        san.ApiConfig.api_key = config.CRYPTO_COMPARE_API_KEY
-        self.glassnode = GlassnodeClient(api_key=config.GLASSNODE_API_KEY)
-        self.exchange = ccxt.binance({
-            'apiKey': config.BINANCE_API_KEY,
-            'secret': config.BINANCE_SECRET_KEY,
+        self.moralis_api_key = config.MORALIS_API_KEY
+        self.exchange = ccxt.kraken({
+            'apiKey': config.KRAKEN_API_KEY,
+            'secret': config.KRAKEN_SECRET_KEY,
         })
 
         # Risk parameters
@@ -28,7 +27,7 @@ class RiskManager:
         self.volatility_window = config.VOLATILITY_WINDOW
         self.liquidity_threshold = config.LIQUIDITY_THRESHOLD
 
-    def fetch_order_book(self, symbol='BTC/USDT', limit=20):
+    def fetch_order_book(self, symbol='XBT/USDT', limit=20):
         return self.exchange.fetch_order_book(symbol, limit)
 
     def check_liquidity(self, order_book):
@@ -117,14 +116,26 @@ class RiskManager:
 
     def get_on_chain_metrics(self):
         try:
-            nvt = self.glassnode.get_metric('nvt', 'BTC')
-            sopr = self.glassnode.get_metric('sopr', 'BTC')
+            # Using Moralis to get on-chain metrics
+            params = {
+                "chain": "eth",
+                "address": self.config.CONTRACT_ADDRESS,
+            }
+            result = evm_api.token.get_token_price(
+                api_key=self.moralis_api_key,
+                params=params,
+            )
 
-            nvt_score = self.normalize_data(nvt['data'][-30:])
-            sopr_score = self.normalize_data(sopr['data'][-30:])
+            # Extract relevant metrics from Moralis response
+            token_price = result.get('usdPrice', 0)
+            token_volume = result.get('24hrVolume', 0)
 
-            composite_score = (nvt_score * 0.5 + sopr_score * 0.5)
-            return composite_score
+            # Normalize the data
+            price_score = self.normalize_data([token_price])
+            volume_score = self.normalize_data([token_volume])
+
+            composite_score = (price_score * 0.5 + volume_score * 0.5)
+            return composite_score[0]
         except Exception as e:
             print(f"Error fetching on-chain metrics: {e}")
             return 0.5  # Return neutral score if there's an error
@@ -134,7 +145,7 @@ class RiskManager:
 
     def get_funding_rate(self):
         try:
-            funding_rate = self.exchange.fetch_funding_rate('BTC/USDT')
+            funding_rate = self.exchange.fetch_funding_rate('XBT/USDT')
             return funding_rate['fundingRate']
         except:
             return 0  # Return 0 if unable to fetch funding rate

@@ -33,6 +33,7 @@ class StrategyGenerator:
         return prompt
 
     def parse_strategies(self, strategies_text: str) -> List[Strategy]:
+        generated_strategies = []
         try:
             strategies_data = json.loads(strategies_text)
         except json.JSONDecodeError:
@@ -58,9 +59,9 @@ class StrategyGenerator:
                 parameters[f'{pattern}_weight'] = 1.0 / len(favored_patterns)
 
             if name and description and parameters and favored_patterns:
-                strategies.append(Strategy(name, description, parameters, favored_patterns))
+                generated_strategies.append(Strategy(name, description, parameters, favored_patterns))
 
-        return strategies
+        return generated_strategies
 
     def calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         delta = prices.diff()
