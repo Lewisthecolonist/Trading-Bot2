@@ -1,9 +1,7 @@
 import os
 from decimal import Decimal
 from typing import Dict, Optional
-from web3 import Web3
-from web3 import middleware
-from web3.middleware import async_geth_poa_middleware
+from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
@@ -12,12 +10,32 @@ from web3.exceptions import ContractLogicError
 import ccxt.async_support as ccxt
 from rate_limiter import RateLimiter
 
+ERC20_ABI = [
+    {
+        "constant": True,
+        "inputs": [{"name": "_owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "balance", "type": "uint256"}],
+        "type": "function"
+    },
+    {
+        "constant": False,
+        "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}],
+        "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
+        "type": "function"
+    }
+]
+
 class Wallet:
     def __init__(self, exchange):
         self.exchange = exchange
         self.provider_url = os.getenv("ETHEREUM_PROVIDER_URL")
-        self.w3 = Web3(AsyncHTTPProvider(self.provider_url), modules={'eth': (AsyncHTTPProvider,)}, middlewares=[])
-        self.w3.middleware_onion.inject(middleware.async_geth_poa_middleware, layer=0)
+        self.w3 = AsyncWeb3(AsyncHTTPProvider(self.provider_url))
+        
+        # Use a custom middleware setup
+        from web3.middleware import async_geth_poa_middleware
+        self.w3.middleware_onion.inject(async_geth_poa_middleware, layer=0)
         
         self.account: LocalAccount = Account.from_key(os.getenv("PRIVATE_KEY"))
         self.balances: Dict[str, Decimal] = {}
@@ -34,7 +52,7 @@ class Wallet:
         daily_profit = await self.calculate_daily_profit()
         share_amount = daily_profit * self.config.PROFIT_SHARING_PERCENTAGE
         
-        w3 = Web3(Web3.HTTPProvider('https://mainnet.infura.io/v3/308ed715f071434cabf41df0f65d07ff'))
+        w3 = AsyncWeb3(AsyncWeb3.HTTPProvider('https://mainnet.infura.io/v3/308ed715f071434cabf41df0f65d07ff'))
         
         # Convert USDT to ETH if necessary
         # Send the transaction
@@ -65,13 +83,13 @@ class Wallet:
         try:
             await self.rate_limiter.wait()
             eth_balance = await self.w3.eth.get_balance(self.account.address)
-            self.balances['ETH'] = Decimal(str(Web3.from_wei(eth_balance, 'ether')))
+            self.balances['ETH'] = Decimal(str(AsyncWeb3.from_wei(eth_balance, 'ether')))
 
             for token, address in self.token_addresses.items():
                 await self.rate_limiter.wait()
                 contract = self.w3.eth.contract(address=address, abi=ERC20_ABI)
                 balance = await contract.functions.balanceOf(self.account.address).call()
-                self.balances[token] = Decimal(str(Web3.from_wei(balance, 'ether')))
+                self.balances[token] = Decimal(str(AsyncWeb3.from_wei(balance, 'ether')))
                 self.token_contracts[token] = contract
 
             # Update Kraken Futures balances
@@ -94,7 +112,7 @@ class Wallet:
             if asset == 'ETH':
                 transaction: TxParams = {
                     'to': to_address,
-                    'value': Web3.to_wei(amount, 'ether'),
+                    'value': AsyncWeb3.to_wei(amount, 'ether'),
                     'gas': 21000,
                     'gasPrice': await self.w3.eth.gas_price,
                     'nonce': nonce,
@@ -106,7 +124,7 @@ class Wallet:
                 
                 transaction = await contract.functions.transfer(
                     to_address,
-                    Web3.to_wei(amount, 'ether')
+                    AsyncWeb3.to_wei(amount, 'ether')
                 ).build_transaction({
                     'gas': 100000,
                     'gasPrice': await self.w3.eth.gas_price,
@@ -143,7 +161,7 @@ class Wallet:
                 gas_estimate = await self.w3.eth.estimate_gas({
                     'to': to_address,
                     'from': self.account.address,
-                    'value': Web3.to_wei(amount, 'ether')
+                    'value': AsyncWeb3.to_wei(amount, 'ether')
                 })
             else:
                 contract = self.token_contracts.get(asset)
@@ -152,7 +170,7 @@ class Wallet:
                 
                 gas_estimate = await contract.functions.transfer(
                     to_address,
-                    Web3.to_wei(amount, 'ether')
+                    AsyncWeb3.to_wei(amount, 'ether')
                 ).estimate_gas({'from': self.account.address})
 
             return gas_estimate

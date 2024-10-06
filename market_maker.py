@@ -9,10 +9,11 @@ from inventory_manager import InventoryManager
 from compliance import ComplianceChecker
 from strategy_factory import StrategyFactory
 from strategy_selector import StrategySelector
-from typing import Dict
+from typing import Dict, Optional
 from strategy import Strategy
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from event import MarketEvent, SignalEvent
+import pandas as pd
 
 class MarketMakerError(Exception):
     pass
@@ -90,26 +91,61 @@ class MarketMaker:
     async def run(self):
         await self.initialize()
         last_performance_report = datetime.now()
-        
+        last_rebalance = datetime.now()
+
         while True:
             try:
-                await self.update_market_data()
-                await self.adjust_orders()
-                await self.check_and_share_profits()
-                
-                inventory_risk = self.calculate_inventory_risk()
-                if inventory_risk > self.config.MAX_INVENTORY_RISK:
-                    await self.rebalance_inventory()
-                
                 current_time = datetime.now()
+
+                # Update market data
+                await self.update_market_data()
+
+                # Check and update strategy
+                new_strategy = self.strategy_selector.select_strategy(self.order_book.get_current_price())
+                if new_strategy != self.current_strategy:
+                    self.current_strategy = new_strategy
+                    await self.rebalance_inventory()
+
+                # Generate and handle market events
+                market_event = MarketEvent(current_time, self.config.SYMBOL, self.order_book.get_current_price())
+                await self.handle_market_event(market_event)
+
+                # Process any pending events
+                for event in self.events:
+                    if isinstance(event, SignalEvent):
+                        await self.execute_signal(event)
+
+                # Adjust orders based on current market conditions
+                await self.adjust_orders()
+
+                # Check and share profits at midnight
+                await self.check_and_share_profits()
+
+                # Periodic rebalancing
+                if (current_time - last_rebalance).total_seconds() >= self.config.REBALANCE_INTERVAL:
+                    await self.rebalance_inventory()
+                    last_rebalance = current_time
+
+                # Periodic performance reporting
                 if (current_time - last_performance_report).total_seconds() >= 3600:  # Report every hour
                     await self.report_performance()
                     last_performance_report = current_time
-                
+
+                # Risk management
+                inventory_risk = self.calculate_inventory_risk()
+                if inventory_risk > self.config.MAX_INVENTORY_RISK:
+                    await self.rebalance_inventory()
+
+                # Compliance check
+                await self.compliance_checker.check_compliance(self.wallet.balances, self.current_orders)
+
+                # Sleep for the configured interval
                 await asyncio.sleep(self.config.ORDER_REFRESH_RATE)
+
             except Exception as e:
                 await self.log(f"Error in market maker main loop: {e}", logging.ERROR)
                 await asyncio.sleep(10)
+
 
     async def place_orders(self, bid_price, ask_price, position_size):
         await self.cancel_existing_orders()
@@ -178,13 +214,100 @@ class MarketMaker:
         self.current_orders = {}
 
     async def rebalance_inventory(self):
-        # Implement inventory rebalancing logic here
-        pass
+        btc_price = self.config.get_btc_price()
+        optimal_capital = self.current_strategy.get_optimal_capital()
+        current_xbt_balance = self.wallet.get_balance('XBT')
+        current_usdt_balance = self.wallet.get_balance('USDT')
+        target_value = optimal_capital / 2
+        target_xbt_value = target_value
+        target_xbt_balance = target_xbt_value / btc_price
+        target_usdt_balance = optimal_capital / 2
+
+        # Calculate extra capital outside the position
+        extra_capital = max(0, self.wallet.get_total_balance() - optimal_capital)
+
+        # Adjust XBT balance
+        xbt_difference = target_xbt_balance - current_xbt_balance
+        if xbt_difference > 0:
+            if extra_capital > 0:
+                xbt_to_buy = min(xbt_difference, extra_capital / btc_price)
+                await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+                extra_capital -= xbt_to_buy * btc_price
+            else:
+                usdt_to_convert = min(current_usdt_balance, xbt_difference * btc_price)
+                xbt_to_buy = usdt_to_convert / btc_price
+                await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+        elif xbt_difference < 0:
+            xbt_to_sell = abs(xbt_difference)
+            await self.exchange.create_market_sell_order(self.config.SYMBOL, xbt_to_sell)
+
+        # Adjust USDT balance
+        usdt_difference = target_usdt_balance - current_usdt_balance
+        if usdt_difference > 0:
+            if extra_capital > 0:
+                usdt_to_add = min(usdt_difference, extra_capital)
+                await self.wallet.transfer_to_trading_account('USDT', usdt_to_add)
+                extra_capital -= usdt_to_add
+            else:
+                xbt_to_convert = min(current_xbt_balance, usdt_difference / btc_price)
+                await self.exchange.create_market_sell_order(self.config.SYMBOL, xbt_to_convert)
+        elif usdt_difference < 0:
+            usdt_to_remove = abs(usdt_difference)
+            await self.wallet.transfer_from_trading_account('USDT', usdt_to_remove)
+
+        # Add any remaining extra capital
+        if extra_capital > 0:
+            xbt_to_buy = extra_capital / (2 * btc_price)
+            await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+            await self.wallet.transfer_to_trading_account('USDT', extra_capital / 2)
+
+        await self.wallet.update_balances()
+        await self.log(f"Rebalanced inventory: XBT={self.wallet.get_balance('XBT')}, USDT={self.wallet.get_balance('USDT')}", logging.INFO)
+
+    async def get_recent_data(self, timestamp: Optional[datetime] = None) -> pd.DataFrame:
+        if timestamp is None:
+            timestamp = datetime.now()
+        
+        end_time = timestamp
+        start_time = end_time - timedelta(hours=24)  # Get last 24 hours of data
+        
+        ohlcv = await self.exchange.fetch_ohlcv(
+            self.config.SYMBOL,
+            timeframe='1h',
+            since=int(start_time.timestamp() * 1000),
+            limit=24
+        )
+        
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
+        
+        return df
 
     async def calculate_performance_metrics(self):
-        # Implement performance calculation logic here
-        pass
-
-    async def get_recent_data(self, timestamp=None):
-        # Implement logic to fetch recent market data
-        pass
+        performance = {}
+        
+        # Calculate PnL
+        initial_balance = self.inventory_manager.initial_xbt_balance
+        current_balance = self.wallet.get_balance('XBT')
+        pnl = (current_balance - initial_balance) / initial_balance
+        performance['pnl'] = pnl
+        
+        # Calculate Sharpe Ratio
+        returns = await self.get_recent_data()['close'].pct_change().dropna()
+        sharpe_ratio = returns.mean() / returns.std() * (252 ** 0.5)  # Annualized Sharpe Ratio
+        performance['sharpe_ratio'] = sharpe_ratio
+        
+        # Calculate maximum drawdown
+        cumulative_returns = (1 + returns).cumprod()
+        max_drawdown = (cumulative_returns.cummax() - cumulative_returns) / cumulative_returns.cummax()
+        performance['max_drawdown'] = max_drawdown.max()
+        
+        # Calculate win rate
+        trades = await self.exchange.fetch_my_trades(self.config.SYMBOL)
+        winning_trades = sum(1 for trade in trades if trade['profit'] > 0)
+        total_trades = len(trades)
+        win_rate = winning_trades / total_trades if total_trades > 0 else 0
+        performance['win_rate'] = win_rate
+        
+        return performance

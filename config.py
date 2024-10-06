@@ -18,7 +18,7 @@ class Config:
             'PROFIT_SHARING_ADDRESS': '0x9A252E29eB31d76BcC3408E5F98694a0f7A764D6',  # Replace with the actual MetaMask address
             'PROFIT_SHARING_PERCENTAGE': 0.05,  # 5%
             # Trading parameters
-            'SYMBOL': 'BTC/USDT',
+            'SYMBOL': 'XBT/USDT',
             'INITIAL_CAPITAL': 10000,
             'SENTIMENT_THRESHOLD_LOW': 30,
             'SENTIMENT_THRESHOLD_HIGH': 70,
