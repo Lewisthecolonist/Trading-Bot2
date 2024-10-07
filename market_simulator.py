@@ -24,13 +24,14 @@ class MarketSimulator:
     def __init__(self, config, strategies):
         self.config = config
         self.strategies = strategies
+        self.endog_data = None
         self.rng = np.random.default_rng()
         self.copula = GaussianMultivariate()
         self.price_scaler = MinMaxScaler(feature_range=(1, 1000))
         self.market_graph = self._create_market_graph()
         self.regime_model = None
         self.volatility_model = self._create_volatility_model()
-        self.sentiment_model = self._create_sentiment_model()
+        self.sentiment_model = self._create_sentiment_model(endog_data)
         self.order_book = self._create_order_book()
         self.market_maker = self._create_market_maker()
         self.liquidity_pool = self._create_liquidity_pool()
@@ -38,7 +39,7 @@ class MarketSimulator:
         self.kalman_filter = self._create_kalman_filter()
         self.prophet_model = self._create_prophet_model()
         self.gp_regressor = self._create_gp_regressor()
-        self.endog_data = None
+        
         
     def generate_market_data(self, days=365):
         prices, regimes = self._generate_complex_regime_switching_prices(days)
@@ -129,7 +130,7 @@ class MarketSimulator:
     def _create_volatility_model(self):
         return arch_model(y=None, vol='Garch', p=1, o=1, q=1, dist='skewt')
 
-    def _create_sentiment_model(self):
+    def _create_sentiment_model(self, endog_data):
         return ARIMA(order=(1, 1, 1), endog=endog_data)
 
     def _create_order_book(self):
