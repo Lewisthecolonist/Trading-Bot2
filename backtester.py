@@ -10,6 +10,7 @@ import random
 from scipy import stats
 from strategy import Strategy
 from risk_manager import RiskManager
+import strategy
 from strategy_generator import StrategyGenerator
 from strategy_selector import StrategySelector
 from config import Config
@@ -24,6 +25,7 @@ from strategy_optimizer import StrategyOptimizer
 from collections import deque
 from event import EventType, MarketEvent, SignalEvent, OrderEvent, FillEvent
 import time
+from market_simulator import MarketSimulator
 historical_data = pd.read_csv('historical_data.csv.zip')
 
 class TransactionCostModel:
@@ -193,15 +195,9 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.stop_event = multiprocessing.Event()
         self.strategy_generator = StrategyGenerator(config)
         self.strategy_selector = StrategySelector(config)
+        self.market_simulator = MarketSimulator(config, strategy)
         self.risk_manager = RiskManager(config)
-        self.strategy_optimizer = StrategyOptimizer(
-            config, 
-            historical_data, 
-            self.cash, 
-            0,  # Initial USDT balance
-            self.run_mini_backtest  # Pass the mini backtest function
-        )
-        self.strategy_optimizer = StrategyOptimizer(config, self.run_mini_backtest)
+        self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, strategy)
 
     def run(self):
         while not self.stop_event.is_set():

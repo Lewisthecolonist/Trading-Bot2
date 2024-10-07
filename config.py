@@ -22,7 +22,9 @@ class Config:
             'INITIAL_CAPITAL': 10000,
             'SENTIMENT_THRESHOLD_LOW': 30,
             'SENTIMENT_THRESHOLD_HIGH': 70,
-
+            #Risk manager bases
+            'BASE_STOP_LOSS_PCT': 0.05,
+            'BASE_TAKE_PROFIT_PCT': 0.1,
             # Strategy parameters
             'MAX_STRATEGIES': 100,
             'STRATEGY_UPDATE_INTERVAL': 100,
@@ -93,9 +95,9 @@ class Config:
         self.current_strategy = None
 
         # Initialize exchange
-        self.exchange = ccxt.binance({
-            'apiKey': self.BASE_PARAMS['BINANCE_API_KEY'],
-            'secret': self.BASE_PARAMS['BINANCE_SECRET_KEY'],
+        self.exchange = ccxt.kraken({
+            'apiKey': self.BASE_PARAMS['KRAKEN_API_KEY'],
+            'secret': self.BASE_PARAMS['KRAKEN_SECRET_KEY'],
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}  # Use this for futures trading
         })

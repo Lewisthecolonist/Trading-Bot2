@@ -1,5 +1,4 @@
 import numpy as np
-import numpy
 import pandas as pd
 from scipy.stats import skewnorm, t, norm, levy_stable, beta, multivariate_normal
 from statsmodels.tsa.arima.model import ARIMA
@@ -12,12 +11,10 @@ from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 from scipy.stats import gamma
 from scipy.optimize import minimize
 from sklearn.cluster import KMeans
-from textblob import TextBlob
 from collections import deque
 import torch
 import torch.nn as nn
 from pykalman import KalmanFilter
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from prophet import Prophet
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
@@ -31,7 +28,7 @@ class MarketSimulator:
         self.copula = GaussianMultivariate()
         self.price_scaler = MinMaxScaler(feature_range=(1, 1000))
         self.market_graph = self._create_market_graph()
-        self.regime_model = self._create_regime_model()
+        self.regime_model = None
         self.volatility_model = self._create_volatility_model()
         self.sentiment_model = self._create_sentiment_model()
         self.order_book = self._create_order_book()
@@ -41,13 +38,22 @@ class MarketSimulator:
         self.kalman_filter = self._create_kalman_filter()
         self.prophet_model = self._create_prophet_model()
         self.gp_regressor = self._create_gp_regressor()
-
+        self.endog_data = None
+        
     def generate_market_data(self, days=365):
         prices, regimes = self._generate_complex_regime_switching_prices(days)
+        
+        # Calculate returns and update endog_data
+        returns = np.diff(np.log(prices))
+        self.endog_data = returns
+        
+        # Initialize or update regime model
+        self._update_regime_model()
+
         factors = self._generate_correlated_factors(days)
         on_chain_metrics = self._generate_on_chain_metrics(days)
         sentiment = self._generate_sentiment(days)
-        # Apply all strategy patterns
+        
         prices = self._apply_strategy_patterns(prices, regimes)
         volumes = self._generate_volume_series(days, prices, regimes)
         volatility = self._generate_volatility_series(days, prices, regimes)
@@ -68,7 +74,6 @@ class MarketSimulator:
         order_book = self._simulate_spoofing(order_book)
         liquidity_pool_data = self._simulate_liquidity_pool(days, prices)
         
-        # New advanced features
         prices = self._apply_neural_network_prediction(prices)
         prices = self._apply_kalman_filter(prices)
         prophet_forecast = self._generate_prophet_forecast(prices)
@@ -104,6 +109,7 @@ class MarketSimulator:
             'fractional_brownian': fractional_brownian
         })
 
+
     def _create_market_graph(self):
         G = nx.barabasi_albert_graph(n=100, m=2)
         for (u, v) in G.edges():
@@ -111,13 +117,20 @@ class MarketSimulator:
         return G
 
     def _create_regime_model(self):
-        return MarkovRegression(k_regimes=4, trend='c', switching_variance=True, switching_exog=True)
+        if self.endog_data is None:
+            raise ValueError("endog_data is not defined. Generate market data first.")
+        return MarkovRegression(endog=self.endog_data, k_regimes=4, trend='c', switching_variance=True, switching_exog=True)
+
+    def _update_regime_model(self):
+        if self.regime_model is None:
+            self.regime_model = self._create_regime_model()
+        self.regime_model = self.regime_model.fit()
 
     def _create_volatility_model(self):
         return arch_model(y=None, vol='Garch', p=1, o=1, q=1, dist='skewt')
 
     def _create_sentiment_model(self):
-        return ARIMA(order=(1, 1, 1))
+        return ARIMA(order=(1, 1, 1), endog=endog_data)
 
     def _create_order_book(self):
         return {'bids': deque(), 'asks': deque()}
@@ -428,7 +441,7 @@ class MarketSimulator:
         return order_time + np.random.randint(0, max_delay)
 
     def run_simulation(self, strategy):
-        market_data = self.generate_market_data(strategy)
+        market_data = self.generate_market_data(365)  # Generate a year of data
         portfolio_value = strategy.get_capital()
         positions = []
         daily_returns = []
