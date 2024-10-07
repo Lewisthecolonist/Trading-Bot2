@@ -24,14 +24,14 @@ class MarketSimulator:
     def __init__(self, config, strategies):
         self.config = config
         self.strategies = strategies
-        self.endog_data = None
+        self.endog_data = np.array([])  # Initialized with an empty array to avoid NoneType issues
         self.rng = np.random.default_rng()
         self.copula = GaussianMultivariate()
         self.price_scaler = MinMaxScaler(feature_range=(1, 1000))
         self.market_graph = self._create_market_graph()
         self.regime_model = None
         self.volatility_model = self._create_volatility_model()
-        self.sentiment_model = self._create_sentiment_model(endog_data)
+        self.sentiment_model = None  # Updated initialization
         self.order_book = self._create_order_book()
         self.market_maker = self._create_market_maker()
         self.liquidity_pool = self._create_liquidity_pool()
@@ -43,14 +43,9 @@ class MarketSimulator:
         
     def generate_market_data(self, days=365):
         prices, regimes = self._generate_complex_regime_switching_prices(days)
-        
-        # Calculate returns and update endog_data
-        returns = np.diff(np.log(prices))
-        self.endog_data = returns
-        
-        # Initialize or update regime model
-        self._update_regime_model()
-
+        returns = np.diff(np.log(prices))  # Calculate returns
+        self.endog_data = returns  # Update endog_data here
+        self._update_regime_model()  # Ensure regime_model is updated
         factors = self._generate_correlated_factors(days)
         on_chain_metrics = self._generate_on_chain_metrics(days)
         sentiment = self._generate_sentiment(days)
@@ -118,7 +113,7 @@ class MarketSimulator:
         return G
 
     def _create_regime_model(self):
-        if self.endog_data is None:
+        if self.endog_data.size == 0:  # Check if endog_data is populated
             raise ValueError("endog_data is not defined. Generate market data first.")
         return MarkovRegression(endog=self.endog_data, k_regimes=4, trend='c', switching_variance=True, switching_exog=True)
 
@@ -130,8 +125,10 @@ class MarketSimulator:
     def _create_volatility_model(self):
         return arch_model(y=None, vol='Garch', p=1, o=1, q=1, dist='skewt')
 
-    def _create_sentiment_model(self, endog_data):
-        return ARIMA(order=(1, 1, 1), endog=endog_data)
+    def _create_sentiment_model(self):
+        if self.endog_data.size == 0:
+            raise ValueError("endog_data is not defined. Generate market data first.")
+        return ARIMA(order=(1, 1, 1), endog=self.endog_data)
 
     def _create_order_book(self):
         return {'bids': deque(), 'asks': deque()}
