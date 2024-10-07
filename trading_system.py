@@ -18,7 +18,7 @@ class TradingSystem:
         self.historical_data = historical_data
         self.result_queue = multiprocessing.Queue()
         self.backtester = Backtester(config, historical_data, self.result_queue)
-        self.market_maker = MarketMaker(config)
+        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
         self.is_running = False
         self.backtest_results = None
         self.mode = None

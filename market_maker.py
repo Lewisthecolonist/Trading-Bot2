@@ -22,7 +22,7 @@ class OrderPlacementError(MarketMakerError):
     pass
 
 class MarketMaker:
-    def __init__(self, config, strategy_config_path: str):
+    def __init__(self, config, strategy_config_path):
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.strategies: Dict[str, Strategy] = {}
