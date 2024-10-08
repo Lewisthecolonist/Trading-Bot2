@@ -37,7 +37,7 @@ class MarketMaker:
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}
         })
-        self.wallet = Wallet(self.exchange)
+        self.wallet = None        
         self.order_book = OrderBook(self.exchange, config.SYMBOL)
         self.risk_manager = RiskManager(config)
         self.inventory_manager = InventoryManager(config, self.exchange)
@@ -532,5 +532,6 @@ class MarketMaker:
         self.stop()
     
     async def initialize(self):
-        if self.wallet is None:
-            self.wallet = Wallet(self.exchange)
+        await self.exchange.load_markets()
+        self.wallet = Wallet(self.exchange)  # Create Wallet instance here
+        await self.wallet.connect()

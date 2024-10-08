@@ -11,6 +11,7 @@ class Wallet:
         self.rate_limiter = RateLimiter(rate=5, per=1.0)  # 5 calls per second
 
     async def connect(self):
+        await self.rate_limiter.wait()
         try:
             await self.update_balances()
             print("Wallet connected successfully")

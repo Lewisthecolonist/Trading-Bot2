@@ -36,10 +36,8 @@ class TradingSystem:
         self.executor = ThreadPoolExecutor(max_workers=3)
 
     async def start(self):
-        await self.wallet.connect()
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
-        await self.wallet.connect()
         await self.market_maker.initialize()
         tasks = []
         if self.mode in [1, 3]:
