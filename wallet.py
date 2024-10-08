@@ -9,7 +9,7 @@ from web3.types import TxParams
 from web3.exceptions import ContractLogicError
 import ccxt.async_support as ccxt
 from rate_limiter import RateLimiter
-from web3.middleware import async_combine_middleware, async_geth_poa_middleware
+from web3.middleware import async_validation_middleware
 
 ERC20_ABI = [
     {
@@ -34,8 +34,8 @@ class Wallet:
         self.provider_url = os.getenv("ETHEREUM_PROVIDER_URL")
         self.w3 = AsyncWeb3(AsyncHTTPProvider(self.provider_url))
         
-        # Use async_combine_middleware instead of async_geth_poa_middleware
-        self.w3.middleware_onion.add(async_combine_middleware([async_geth_poa_middleware]))
+        # Add async_validation_middleware
+        self.w3.middleware_onion.add(async_validation_middleware)
         
         self.account: LocalAccount = Account.from_key(os.getenv("PRIVATE_KEY"))
         self.balances: Dict[str, Decimal] = {}
