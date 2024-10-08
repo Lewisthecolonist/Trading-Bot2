@@ -14,6 +14,10 @@ from strategy import Strategy
 from datetime import datetime, time, timedelta
 from event import MarketEvent, SignalEvent
 import pandas as pd
+import json
+import psutil
+import aiofiles
+from decimal import Decimal
 
 class MarketMakerError(Exception):
     pass
@@ -43,6 +47,7 @@ class MarketMaker:
         self.strategy_selector = StrategySelector(config)
         self.strategy_performance = {}
         self.events = []
+        self.current_strategy = None
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()
@@ -142,44 +147,62 @@ class MarketMaker:
                 # Sleep for the configured interval
                 await asyncio.sleep(self.config.ORDER_REFRESH_RATE)
 
+                if (current_time - last_health_check).total_seconds() >= self.config.HEALTH_CHECK_INTERVAL:
+                    await self.monitor_system_health()
+                    last_health_check = current_time
+
+                # Periodic data backup
+                if (current_time - last_backup).total_seconds() >= self.config.BACKUP_INTERVAL:
+                    await self.backup_data()
+                    last_backup = current_time
+
+                # Sleep for the configured interval
+                await asyncio.sleep(self.config.ORDER_REFRESH_RATE)
+
+            except Exception as e:
+                retry = await self.handle_exchange_errors(e)
+                if retry:
+                    continue
+                else:
+                    await asyncio.sleep(self.config.ERROR_RETRY_INTERVAL)
+
             except Exception as e:
                 await self.log(f"Error in market maker main loop: {e}", logging.ERROR)
                 await asyncio.sleep(10)
 
+    async def place_orders(self):
+        adjusted_params = await self.adjust_order_parameters()
+        if adjusted_params is None:
+            await self.log("Failed to adjust order parameters. Skipping order placement.", logging.WARNING)
+            return
 
-    async def place_orders(self, bid_price, ask_price, position_size):
-        await self.cancel_existing_orders()
+        bid_price, ask_price, buy_amount, sell_amount = adjusted_params
 
         try:
-            xbt_balance = await self.wallet.get_balance('XBT')
-            usdt_balance = await self.wallet.get_balance('USDT')
+            # Place buy order
+            buy_order = await self.wallet.place_order(
+                symbol=self.config.SYMBOL,
+                order_type='limit',
+                side='buy',
+                amount=float(buy_amount),
+                price=float(bid_price)
+            )
+            self.current_orders['bid'] = buy_order['id']
 
-            if usdt_balance < bid_price * position_size:
-                await self.log(f"Insufficient USDT balance to place buy order. Required: {bid_price * position_size}, Available: {usdt_balance}", logging.WARNING)
-                return
-            if xbt_balance < position_size:
-                await self.log(f"Insufficient XBT balance to place sell order. Required: {position_size}, Available: {xbt_balance}", logging.WARNING)
-                return
+            # Place sell order
+            sell_order = await self.wallet.place_order(
+                symbol=self.config.SYMBOL,
+                order_type='limit',
+                side='sell',
+                amount=float(sell_amount),
+                price=float(ask_price)
+            )
+            self.current_orders['ask'] = sell_order['id']
 
-            current_volatility = self.calculate_current_volatility(await self.get_recent_data())
-            spread = self.adjust_spread(self.config.BASE_SPREAD, current_volatility)
-            adjusted_bid_price = bid_price * (1 - spread)
-            adjusted_ask_price = ask_price * (1 + spread)
+            await self.log(f"Orders placed - Buy: {buy_amount} @ {bid_price}, Sell: {sell_amount} @ {ask_price}", logging.INFO)
 
-            bid_order = await self.exchange.create_limit_buy_order(self.config.SYMBOL, position_size, adjusted_bid_price)
-            ask_order = await self.exchange.create_limit_sell_order(self.config.SYMBOL, position_size, adjusted_ask_price)
-            
-            self.current_orders['bid'] = bid_order['id']
-            self.current_orders['ask'] = ask_order['id']
-
-            stop_loss = await self.risk_manager.set_stop_loss(adjusted_bid_price, position_size)
-            take_profit = await self.risk_manager.set_take_profit(adjusted_ask_price, position_size)
-
-            await self.exchange.create_stop_market_order(self.config.SYMBOL, 'sell', position_size, stop_loss)
-            await self.exchange.create_take_profit_market_order(self.config.SYMBOL, 'sell', position_size, take_profit)
-
-            await self.log(f"Orders placed - Bid: {adjusted_bid_price}, Ask: {adjusted_ask_price}, Size: {position_size}", logging.INFO)
         except Exception as e:
+            await self.log(f"Error placing orders: {e}", logging.ERROR)
             raise OrderPlacementError(f"Error placing orders: {e}")
 
     def is_volatility_sufficient(self, current_market_data):
@@ -191,7 +214,7 @@ class MarketMaker:
         return float(returns.std() * (252 ** 0.5))  # Annualized volatility
 
     async def handle_market_event(self, event: MarketEvent):
-        current_market_data = self.get_recent_data(event.timestamp)
+        current_market_data = await self.get_recent_data(event.timestamp)
         
         if self.is_volatility_sufficient(current_market_data):
             for temp_optimized_strategy in self.strategy_optimizer.temporary_optimize(self.current_strategy, current_market_data):
@@ -208,7 +231,7 @@ class MarketMaker:
     async def cancel_existing_orders(self):
         for order_id in self.current_orders.values():
             try:
-                await self.exchange.cancel_order(order_id, self.config.SYMBOL)
+                await self.wallet.cancel_order(order_id, self.config.SYMBOL)
             except Exception as e:
                 await self.log(f"Error cancelling order {order_id}: {e}", logging.ERROR)
         self.current_orders = {}
@@ -231,15 +254,15 @@ class MarketMaker:
         if xbt_difference > 0:
             if extra_capital > 0:
                 xbt_to_buy = min(xbt_difference, extra_capital / btc_price)
-                await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+                await self.wallet.place_order(self.config.SYMBOL, 'market', 'buy', xbt_to_buy)
                 extra_capital -= xbt_to_buy * btc_price
             else:
                 usdt_to_convert = min(current_usdt_balance, xbt_difference * btc_price)
                 xbt_to_buy = usdt_to_convert / btc_price
-                await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+                await self.wallet.place_order(self.config.SYMBOL, 'market', 'buy', xbt_to_buy)
         elif xbt_difference < 0:
             xbt_to_sell = abs(xbt_difference)
-            await self.exchange.create_market_sell_order(self.config.SYMBOL, xbt_to_sell)
+            await self.wallet.place_order(self.config.SYMBOL, 'market', 'sell', xbt_to_sell)
 
         # Adjust USDT balance
         usdt_difference = target_usdt_balance - current_usdt_balance
@@ -250,7 +273,7 @@ class MarketMaker:
                 extra_capital -= usdt_to_add
             else:
                 xbt_to_convert = min(current_xbt_balance, usdt_difference / btc_price)
-                await self.exchange.create_market_sell_order(self.config.SYMBOL, xbt_to_convert)
+                await self.wallet.place_order(self.config.SYMBOL, 'market', 'sell', xbt_to_convert)
         elif usdt_difference < 0:
             usdt_to_remove = abs(usdt_difference)
             await self.wallet.transfer_from_trading_account('USDT', usdt_to_remove)
@@ -258,7 +281,7 @@ class MarketMaker:
         # Add any remaining extra capital
         if extra_capital > 0:
             xbt_to_buy = extra_capital / (2 * btc_price)
-            await self.exchange.create_market_buy_order(self.config.SYMBOL, xbt_to_buy)
+            await self.wallet.place_order(self.config.SYMBOL, 'market', 'buy', xbt_to_buy)
             await self.wallet.transfer_to_trading_account('USDT', extra_capital / 2)
 
         await self.wallet.update_balances()
@@ -284,30 +307,217 @@ class MarketMaker:
         
         return df
 
-    async def calculate_performance_metrics(self):
-        performance = {}
+        async def calculate_performance_metrics(self):
+            performance = {}
         
-        # Calculate PnL
-        initial_balance = self.inventory_manager.initial_xbt_balance
-        current_balance = self.wallet.get_balance('XBT')
-        pnl = (current_balance - initial_balance) / initial_balance
-        performance['pnl'] = pnl
+            # Calculate PnL
+            initial_balance = self.inventory_manager.initial_xbt_balance
+            current_balance = self.wallet.get_balance('XBT')
+            pnl = (current_balance - initial_balance) / initial_balance
+            performance['pnl'] = pnl
         
-        # Calculate Sharpe Ratio
-        returns = await self.get_recent_data()['close'].pct_change().dropna()
-        sharpe_ratio = returns.mean() / returns.std() * (252 ** 0.5)  # Annualized Sharpe Ratio
-        performance['sharpe_ratio'] = sharpe_ratio
+            # Calculate Sharpe Ratio
+            returns = (await self.get_recent_data())['close'].pct_change().dropna()
+            sharpe_ratio = returns.mean() / returns.std() * (252 ** 0.5)  # Annualized Sharpe Ratio
+            performance['sharpe_ratio'] = sharpe_ratio
         
-        # Calculate maximum drawdown
-        cumulative_returns = (1 + returns).cumprod()
-        max_drawdown = (cumulative_returns.cummax() - cumulative_returns) / cumulative_returns.cummax()
-        performance['max_drawdown'] = max_drawdown.max()
+            # Calculate maximum drawdown
+            cumulative_returns = (1 + returns).cumprod()
+            max_drawdown = (cumulative_returns.cummax() - cumulative_returns) / cumulative_returns.cummax()
+            performance['max_drawdown'] = max_drawdown.max()
         
-        # Calculate win rate
-        trades = await self.exchange.fetch_my_trades(self.config.SYMBOL)
-        winning_trades = sum(1 for trade in trades if trade['profit'] > 0)
-        total_trades = len(trades)
-        win_rate = winning_trades / total_trades if total_trades > 0 else 0
-        performance['win_rate'] = win_rate
+            # Calculate win rate
+            trades = await self.wallet.get_my_trades(self.config.SYMBOL)
+            winning_trades = sum(1 for trade in trades if trade['profit'] > 0)
+            total_trades = len(trades)
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            performance['win_rate'] = win_rate
         
-        return performance
+            return performance
+
+    async def adjust_orders(self):
+        current_price = self.order_book.get_current_price()
+        bid_price = current_price * (1 - self.config.SPREAD)
+        ask_price = current_price * (1 + self.config.SPREAD)
+        position_size = self.config.POSITION_SIZE
+
+        await self.place_orders(bid_price, ask_price, position_size)
+
+    async def execute_signal(self, signal_event: SignalEvent):
+        if signal_event.signal > 0:
+            # Buy signal
+            await self.wallet.place_order(self.config.SYMBOL, 'market', 'buy', self.config.POSITION_SIZE)
+        elif signal_event.signal < 0:
+            # Sell signal
+            await self.wallet.place_order(self.config.SYMBOL, 'market', 'sell', self.config.POSITION_SIZE)
+
+    async def handle_exchange_errors(self, error):
+        await self.log(f"Exchange error occurred: {error}", logging.ERROR)
+        
+        if isinstance(error, ccxt.NetworkError):
+            await self.log("Network error detected. Waiting before retry...", logging.WARNING)
+            await asyncio.sleep(self.config.NETWORK_ERROR_RETRY_WAIT)
+            return True  # Indicate that a retry should be attempted
+        
+        elif isinstance(error, ccxt.ExchangeError):
+            if "Insufficient funds" in str(error):
+                await self.log("Insufficient funds. Adjusting order sizes...", logging.WARNING)
+                await self.adjust_order_sizes()
+            else:
+                await self.log("Unhandled exchange error. Notifying administrator...", logging.ERROR)
+                await self.notify_administrator(error)
+        
+        elif isinstance(error, ccxt.InvalidOrder):
+            await self.log("Invalid order parameters. Adjusting and retrying...", logging.WARNING)
+            await self.adjust_order_parameters()
+            return True  # Indicate that a retry should be attempted
+        
+        else:
+            await self.log("Unhandled error. Notifying administrator...", logging.ERROR)
+            await self.notify_administrator(error)
+        
+        return False  # Indicate that no retry should be attempted
+
+    async def adjust_order_parameters(self):
+        try:
+            # Fetch the current market price
+            ticker = await self.exchange.fetch_ticker(self.config.SYMBOL)
+            current_price = Decimal(str(ticker['last']))
+
+            # Adjust bid and ask prices
+            bid_price = current_price * (Decimal('1') - self.config.MAX_SPREAD)
+            ask_price = current_price * (Decimal('1') + self.config.MAX_SPREAD)
+
+            # Ensure prices are within allowed limits
+            bid_price = max(bid_price, current_price * (Decimal('1') - self.config.MAX_PRICE_DEVIATION))
+            ask_price = min(ask_price, current_price * (Decimal('1') + self.config.MAX_PRICE_DEVIATION))
+
+            # Round prices to the nearest tick size
+            tick_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['precision']['price']))
+            bid_price = round(bid_price / tick_size) * tick_size
+            ask_price = round(ask_price / tick_size) * tick_size
+
+            # Adjust order sizes
+            base_balance, quote_balance = await self.get_available_balances()
+            max_buy_amount = quote_balance / bid_price
+            max_sell_amount = base_balance
+
+            # Ensure order sizes are within allowed limits
+            min_order_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['limits']['amount']['min']))
+            max_order_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['limits']['amount']['max']))
+
+            buy_amount = min(max(min_order_size, max_buy_amount), max_order_size)
+            sell_amount = min(max(min_order_size, max_sell_amount), max_order_size)
+
+            # Round amounts to the nearest lot size
+            lot_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['precision']['amount']))
+            buy_amount = round(buy_amount / lot_size) * lot_size
+            sell_amount = round(sell_amount / lot_size) * lot_size
+
+            await self.log(f"Adjusted order parameters - Bid: {bid_price}, Ask: {ask_price}, Buy Amount: {buy_amount}, Sell Amount: {sell_amount}", logging.INFO)
+
+            return bid_price, ask_price, buy_amount, sell_amount
+
+        except Exception as e:
+            await self.log(f"Error adjusting order parameters: {e}", logging.ERROR)
+            return None
+
+    async def adjust_order_sizes(self):
+        try:
+            base_balance, quote_balance = await self.get_available_balances()
+            ticker = await self.exchange.fetch_ticker(self.config.SYMBOL)
+            current_price = Decimal(str(ticker['last']))
+
+            # Calculate the total portfolio value in quote currency
+            total_value = base_balance * current_price + quote_balance
+
+            # Determine the target position size based on the risk percentage
+            target_position_value = total_value * self.config.POSITION_RISK_PERCENTAGE
+
+            # Calculate new order sizes
+            new_base_order_size = target_position_value / current_price
+            new_quote_order_size = target_position_value
+
+            # Ensure order sizes are within allowed limits
+            min_order_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['limits']['amount']['min']))
+            max_order_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['limits']['amount']['max']))
+
+            new_base_order_size = min(max(min_order_size, new_base_order_size), max_order_size)
+            new_quote_order_size = min(max(min_order_size * current_price, new_quote_order_size), max_order_size * current_price)
+
+            # Round amounts to the nearest lot size
+            lot_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['precision']['amount']))
+            new_base_order_size = round(new_base_order_size / lot_size) * lot_size
+            new_quote_order_size = round(new_quote_order_size / (lot_size * current_price)) * (lot_size * current_price)
+
+            await self.log(f"Adjusted order sizes - Base: {new_base_order_size}, Quote: {new_quote_order_size}", logging.INFO)
+
+            return new_base_order_size, new_quote_order_size
+
+        except Exception as e:
+            await self.log(f"Error adjusting order sizes: {e}", logging.ERROR)
+            return None
+
+    async def notify_administrator(self, error):
+        # Implement logic to send notification to administrator (e.g., email, SMS)
+        pass
+
+    async def monitor_system_health(self):
+        cpu_percent = psutil.cpu_percent()
+        memory_percent = psutil.virtual_memory().percent
+        disk_percent = psutil.disk_usage('/').percent
+        
+        if cpu_percent > self.config.MAX_CPU_USAGE:
+            await self.log(f"High CPU usage detected: {cpu_percent}%", logging.WARNING)
+        
+        if memory_percent > self.config.MAX_MEMORY_USAGE:
+            await self.log(f"High memory usage detected: {memory_percent}%", logging.WARNING)
+        
+        if disk_percent > self.config.MAX_DISK_USAGE:
+            await self.log(f"High disk usage detected: {disk_percent}%", logging.WARNING)
+        
+        # Check network latency
+        try:
+            start_time = datetime.now()
+            await self.exchange.fetch_ticker(self.config.SYMBOL)
+            latency = (datetime.now() - start_time).total_seconds() * 1000  # in milliseconds
+            
+            if latency > self.config.MAX_NETWORK_LATENCY:
+                await self.log(f"High network latency detected: {latency}ms", logging.WARNING)
+        
+        except Exception as e:
+            await self.log(f"Error checking network latency: {e}", logging.ERROR)
+
+    async def backup_data(self):
+        backup_data = {
+            'timestamp': datetime.now().isoformat(),
+            'balances': self.wallet.balances,
+            'open_orders': self.current_orders,
+            'performance_metrics': await self.calculate_performance_metrics(),
+            'current_strategy': self.current_strategy.__dict__ if self.current_strategy else None,
+        }
+        
+        filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        try:
+            async with aiofiles.open(filename, mode='w') as f:
+                await f.write(json.dumps(backup_data, indent=2))
+            await self.log(f"Backup created successfully: {filename}", logging.INFO)
+        except Exception as e:
+            await self.log(f"Error creating backup: {e}", logging.ERROR)
+
+    def __del__(self):
+        # Cleanup method
+        asyncio.create_task(self.wallet.close())
+        self.stop()
+    
+    def update_strategy(self, strategy_name: str, strategy: Strategy):
+        self.strategies[strategy_name] = strategy
+        self.logger.info(f"Strategy '{strategy_name}' has been updated.")
+
+    async def get_available_balances(self):
+        balances = await self.wallet.get_balances()
+        base_currency, quote_currency = self.config.SYMBOL.split('/')
+        base_balance = Decimal(str(balances.get(base_currency, 0)))
+        quote_balance = Decimal(str(balances.get(quote_currency, 0)))
+        return base_balance, quote_balance

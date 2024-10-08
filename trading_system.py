@@ -1,42 +1,47 @@
 import pandas as pd
-import multiprocessing
-import queue
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from backtester import Backtester
 from market_maker import MarketMaker
-import threading
 import time
 from config import Config
 import zipfile
 import io
 from wallet import Wallet
-import decimal as Decimal
-import web3 as Web3
+import os
+import ccxt.async_support as ccxt
 
 class TradingSystem:
     def __init__(self, config, historical_data):
         self.config = Config
         self.historical_data = historical_data
-        self.result_queue = multiprocessing.Queue()
-        self.backtester = Backtester(config, historical_data, self.result_queue)
+        self.backtester = Backtester(config, historical_data)
         self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
+        self.exchange = ccxt.kraken({
+            'apiKey': os.getenv('KRAKEN_API_KEY'),
+            'secret': os.getenv('KRAKEN_SECRET'),
+            'enableRateLimit': True,
+        })
+        self.wallet = Wallet(self.exchange)
         self.is_running = False
         self.backtest_results = None
         self.mode = None
+        self.loop = asyncio.get_event_loop()
+        self.executor = ThreadPoolExecutor(max_workers=3)
 
-    def start(self):
-        self.mode = self.get_user_choice()
+    async def start(self):
+        await self.wallet.connect()
+        self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
 
+        tasks = []
         if self.mode in [1, 3]:
-            self.backtester_process = multiprocessing.Process(target=self.run_backtester)
-            self.backtester_process.start()
-
+            tasks.append(self.loop.run_in_executor(self.executor, self.run_backtester))
         if self.mode in [2, 3]:
-            self.market_maker_thread = threading.Thread(target=self.run_market_maker)
-            self.market_maker_thread.start()
+            tasks.append(self.run_market_maker())
+        tasks.append(self.main_loop())
 
-        self.main_thread = threading.Thread(target=self.main_loop)
-        self.main_thread.start()
+        await asyncio.gather(*tasks)
 
     def get_user_choice(self):
         while True:
@@ -53,45 +58,42 @@ class TradingSystem:
             except ValueError:
                 print("Invalid input. Please enter a number.")
 
-    def stop(self):
+    async def stop(self):
         self.is_running = False
-        if hasattr(self, 'backtester_process'):
-            self.backtester_process.terminate()
-            self.backtester_process.join()
-        if hasattr(self, 'market_maker_thread'):
-            self.market_maker_thread.join()
-        self.main_thread.join()
+        await self.wallet.close()
+        self.executor.shutdown(wait=True)
 
     def run_backtester(self):
-        self.backtester.run()
+        self.backtest_results = self.backtester.run()
+        return self.backtest_results
 
-    def run_market_maker(self):
+    async def run_market_maker(self):
         while self.is_running:
             try:
-                self.market_maker.update(self.get_latest_market_data())
-                self.market_maker.execute_trades()
-                time.sleep(self.config.MARKET_MAKER_UPDATE_INTERVAL)
+                market_data = await self.get_latest_market_data()
+                self.market_maker.update(market_data)
+                await self.market_maker.execute_trades(self.wallet)
+                await asyncio.sleep(self.config.MARKET_MAKER_UPDATE_INTERVAL)
             except Exception as e:
                 print(f"Error in market maker: {e}")
 
-    def main_loop(self):
+    async def main_loop(self):
         while self.is_running:
             try:
                 if self.mode in [1, 3]:
-                    backtest_results = self.result_queue.get(timeout=1)
-                    self.process_backtest_results(backtest_results)
+                    if self.backtest_results:
+                        await self.process_backtest_results(self.backtest_results)
+                        self.backtest_results = None
                 elif self.mode == 2:
-                    time.sleep(1)  # Prevent busy waiting
-            except queue.Empty:
-                pass
+                    await asyncio.sleep(1)  # Prevent busy waiting
             except Exception as e:
                 print(f"Error in main loop: {e}")
 
-    def process_backtest_results(self, results):
-        self.backtest_results = results
+    async def process_backtest_results(self, results):
         if self.mode == 3:
             self.market_maker.update_strategy(results)
 
-    def get_latest_market_data(self):
+    async def get_latest_market_data(self):
         # Implement this method to fetch the latest market data
+        # You can use self.wallet.get_ticker() or other methods to fetch data from Kraken
         pass

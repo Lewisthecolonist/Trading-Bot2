@@ -43,12 +43,53 @@ class Config:
             'MAX_HEDGE_RATIO': 0.9,
             'BACKTEST_DURATION': input('Choose the length of time if you want the backtester to run. if you want it to run indefinitely then simply put 0'),
             'BACKTEST_UPDATE_INTERVAL': 600,
-            # New parameters for MarketMaker
-            'BASE_SPREAD': 0.001,  # 0.1% base spread
+            # MarketMaker specific parameters
+            'MAX_SPREAD': Decimal('0.01'),  # 1% maximum spread
+            'MAX_PRICE_DEVIATION': Decimal('0.05'),  # 5% maximum deviation from current price
+            'POSITION_RISK_PERCENTAGE': Decimal('0.1'),  # 10% of total portfolio value for each position
             'ORDER_REFRESH_RATE': 60,  # Refresh orders every 60 seconds
+
+            # Error handling
+            'NETWORK_ERROR_RETRY_WAIT': 60,  # seconds
+            'ERROR_RETRY_INTERVAL': 300,  # seconds
+
+            # System health
+            'MAX_CPU_USAGE': 80,  # percent
+            'MAX_MEMORY_USAGE': 80,  # percent
+            'MAX_DISK_USAGE': 80,  # percent
+            'MAX_NETWORK_LATENCY': 1000,  # milliseconds
+            'HEALTH_CHECK_INTERVAL': 300,  # seconds
+
+            # Backup
+            'BACKUP_INTERVAL': 3600,  # seconds (1 hour)
+
+            # Performance metrics
+            'PERFORMANCE_METRICS': ['total_return', 'sharpe_ratio', 'max_drawdown', 'win_rate'],
+
+            # Logging
+            'LOG_LEVEL': 'INFO',
+            'LOG_FILE': 'trading_system.log',
+
+            # API rate limiting
+            'API_RATE_LIMIT': 10,  # maximum number of API calls per minute
+
+            # Backtesting parameters
+            'BACKTESTING_START_DATE': '2022-01-01',
+            'BACKTESTING_END_DATE': '2023-01-01',
+            'INITIAL_BALANCE': 10000,  # in quote currency (e.g., USD)
+            'RISK_FREE_RATE': 0.02,  # 2% annual risk-free rate for Sharpe ratio calculation
+            'MAX_DRAWDOWN_THRESHOLD': 0.2,  # 20% maximum allowable drawdown
+            'LEVERAGE': 1,  # 1 means no leverage, 2 means 2x leverage, etc.
         }
 
         self.ADAPTIVE_PARAMS = {
+            # Strategy parameters (you might want to move these to strategies.json)
+            'MOVING_AVERAGE_SHORT': 10,
+            'MOVING_AVERAGE_LONG': 30,
+            'RSI_PERIOD': 14,
+            'RSI_OVERBOUGHT': 70,
+            'RSI_OVERSOLD': 30,
+            
             'TRADING_FEE': 0.001,
             'MAX_POSITION_SIZE': 0.1,
             'STOP_LOSS_PCT': 0.05,
@@ -91,6 +132,10 @@ class Config:
             'MIN_SPREAD': 0.0005,  # Minimum 0.05% spread
             'PRICE_PRECISION': 2,  # Round prices to 2 decimal places
             'PRICE_ADJUSTMENT_THRESHOLD': 0.005,  # Adjust prices if they've moved by 0.5%
+            'MIN_ORDER_SIZE': Decimal('0.001'),  # Minimum order size in base currency
+            'MAX_ORDER_SIZE': Decimal('1.0'),  # Maximum order size in base currency
+            'TICK_SIZE': Decimal('0.1'),  # Price tick size
+            'LOT_SIZE': Decimal('0.001'),  # Amount lot size
         }
         self.current_strategy = None
 
