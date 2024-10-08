@@ -13,13 +13,15 @@ import ccxt.async_support as ccxt
 import datetime
 from decimal import Decimal
 from datetime import timedelta
+from queue import Queue
 
 class TradingSystem:
     def __init__(self, config, historical_data):
         self.config = Config
         self.historical_data = historical_data
-        self.backtester = Backtester(config, historical_data)
-        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
+        self.results_queue = Queue()
+        self.backtester = Backtester(config, historical_data, self.results_queue)
+        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json', results_queue=self.results_queue)
         self.exchange = ccxt.kraken({
             'apiKey': os.getenv('KRAKEN_API_KEY'),
             'secret': os.getenv('KRAKEN_SECRET'),
@@ -43,6 +45,7 @@ class TradingSystem:
         if self.mode in [2, 3]:
             tasks.append(self.run_market_maker())
         tasks.append(self.main_loop())
+        tasks.append(self.process_results_queue())
 
         await asyncio.gather(*tasks)
 
@@ -88,13 +91,24 @@ class TradingSystem:
                         await self.process_backtest_results(self.backtest_results)
                         self.backtest_results = None
                 elif self.mode == 2:
-                    await asyncio.sleep(1)  # Prevent busy waiting
+                    asyncio.sleep(1) # Prevent busy waiting
             except Exception as e:
                 print(f"Error in main loop: {e}")
 
     async def process_backtest_results(self, results):
         if self.mode == 3:
             self.market_maker.update_strategy(results)
+
+    async def process_results_queue(self):
+        while self.is_running:
+            try:
+                if not self.results_queue.empty():
+                    result = self.results_queue.get_nowait()
+                    await self.process_backtest_results(result)
+                else:
+                    await asyncio.sleep(0.1)  # Short sleep to prevent busy waiting
+            except Exception as e:
+                print(f"Error processing results queue: {e}")
 
     async def get_latest_market_data(self):
         try:
