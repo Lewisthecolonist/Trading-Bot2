@@ -8,7 +8,7 @@ class Wallet:
     def __init__(self, exchange):
         self.exchange = exchange
         self.balances: Dict[str, Decimal] = {}
-        self.rate_limiter = RateLimiter(max_calls=5, period=1.0)  # 5 calls per second
+        self.rate_limiter = RateLimiter(rate=5, per=1.0)  # 5 calls per second
 
     async def connect(self):
         try:

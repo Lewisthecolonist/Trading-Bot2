@@ -18,6 +18,7 @@ import json
 import psutil
 import aiofiles
 from decimal import Decimal
+from watchdog.observers import Observer
 
 class MarketMakerError(Exception):
     pass
@@ -48,6 +49,7 @@ class MarketMaker:
         self.strategy_performance = {}
         self.events = []
         self.current_strategy = None
+        self.observer = Observer
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()
@@ -74,7 +76,7 @@ class MarketMaker:
             self.logger.info(f"Strategy '{strategy_name}' has been removed.")
 
     def stop(self):
-        self.strategy_factory.stop()
+        self.strategy_factory.stop(self)
 
     async def initialize(self):
         await self.exchange.load_markets()
@@ -519,6 +521,10 @@ class MarketMaker:
         base_balance = Decimal(str(balances.get(base_currency, 0)))
         quote_balance = Decimal(str(balances.get(quote_currency, 0)))
         return base_balance, quote_balance
+
+    def stop(self):
+        if hasattr(self, 'strategy_factory'):
+            self.strategy_factory.stop()
 
     def __del__(self):
         if hasattr(self, 'wallet') and self.wallet:
