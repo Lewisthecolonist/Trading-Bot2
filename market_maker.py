@@ -506,10 +506,8 @@ class MarketMaker:
         except Exception as e:
             await self.log(f"Error creating backup: {e}", logging.ERROR)
 
-    def __del__(self):
-        # Cleanup method
-        asyncio.create_task(self.wallet.close())
-        self.stop()
+    def set_wallet(self, wallet):
+        self.wallet = wallet
     
     def update_strategy(self, strategy_name: str, strategy: Strategy):
         self.strategies[strategy_name] = strategy
@@ -521,3 +519,12 @@ class MarketMaker:
         base_balance = Decimal(str(balances.get(base_currency, 0)))
         quote_balance = Decimal(str(balances.get(quote_currency, 0)))
         return base_balance, quote_balance
+
+    def __del__(self):
+        if hasattr(self, 'wallet') and self.wallet:
+            asyncio.create_task(self.wallet.close())
+        self.stop()
+    
+    async def initialize(self):
+        if self.wallet is None:
+            self.wallet = Wallet(self.exchange)

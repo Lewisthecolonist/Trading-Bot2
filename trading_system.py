@@ -21,12 +21,13 @@ class TradingSystem:
         self.historical_data = historical_data
         self.results_queue = Queue()
         self.backtester = Backtester(config, historical_data, self.results_queue)
-        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json', results_queue=self.results_queue)
+        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
         self.exchange = ccxt.kraken({
             'apiKey': os.getenv('KRAKEN_API_KEY'),
             'secret': os.getenv('KRAKEN_SECRET'),
             'enableRateLimit': True,
         })
+        self.market_maker.set_wallet(self.wallet)  # Set the wallet for the market maker
         self.wallet = Wallet(self.exchange)
         self.is_running = False
         self.backtest_results = None
@@ -38,7 +39,8 @@ class TradingSystem:
         await self.wallet.connect()
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
-
+        await self.wallet.connect()
+        await self.market_maker.initialize()
         tasks = []
         if self.mode in [1, 3]:
             tasks.append(self.loop.run_in_executor(self.executor, self.run_backtester))
