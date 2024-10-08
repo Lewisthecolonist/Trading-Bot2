@@ -10,6 +10,9 @@ import io
 from wallet import Wallet
 import os
 import ccxt.async_support as ccxt
+import datetime
+from decimal import Decimal
+from datetime import timedelta
 
 class TradingSystem:
     def __init__(self, config, historical_data):
@@ -94,6 +97,64 @@ class TradingSystem:
             self.market_maker.update_strategy(results)
 
     async def get_latest_market_data(self):
-        # Implement this method to fetch the latest market data
-        # You can use self.wallet.get_ticker() or other methods to fetch data from Kraken
-        pass
+        try:
+            symbol = self.config.BASE_PARAMS['SYMBOL']
+            
+            # Fetch ticker data
+            ticker = await self.exchange.fetch_ticker(symbol)
+            
+            # Fetch order book
+            order_book = await self.exchange.fetch_order_book(symbol)
+            
+            # Fetch recent trades
+            trades = await self.exchange.fetch_trades(symbol, limit=100)
+            
+            # Fetch OHLCV data for the last 24 hours
+            since = int((datetime.now() - timedelta(days=1)).timestamp() * 1000)
+            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='1h', since=since)
+            
+            # Calculate additional metrics
+            vwap = sum(trade['price'] * trade['amount'] for trade in trades) / sum(trade['amount'] for trade in trades)
+            volatility = self.calculate_volatility([candle[4] for candle in ohlcv])  # Using close prices
+            
+            market_data = {
+                'symbol': symbol,
+                'last': Decimal(str(ticker['last'])),
+                'bid': Decimal(str(ticker['bid'])),
+                'ask': Decimal(str(ticker['ask'])),
+                'volume': Decimal(str(ticker['baseVolume'])),
+                'timestamp': ticker['timestamp'],
+                'vwap': Decimal(str(vwap)),
+                'volatility': Decimal(str(volatility)),
+                'order_book': {
+                    'bids': [[Decimal(str(price)), Decimal(str(amount))] for price, amount in order_book['bids'][:5]],
+                    'asks': [[Decimal(str(price)), Decimal(str(amount))] for price, amount in order_book['asks'][:5]]
+                },
+                'recent_trades': [
+                    {
+                        'price': Decimal(str(trade['price'])),
+                        'amount': Decimal(str(trade['amount'])),
+                        'side': trade['side'],
+                        'timestamp': trade['timestamp']
+                    } for trade in trades[:10]
+                ],
+                'ohlcv': [
+                    {
+                        'timestamp': candle[0],
+                        'open': Decimal(str(candle[1])),
+                        'high': Decimal(str(candle[2])),
+                        'low': Decimal(str(candle[3])),
+                        'close': Decimal(str(candle[4])),
+                        'volume': Decimal(str(candle[5]))
+                    } for candle in ohlcv
+                ]
+            }
+            
+            return market_data
+        except Exception as e:
+            print(f"Error fetching market data: {e}")
+            return None
+
+    def calculate_volatility(self, prices):
+        returns = pd.Series(prices).pct_change().dropna()
+        return float(returns.std() * (252 ** 0.5))  # Annualized volatility
