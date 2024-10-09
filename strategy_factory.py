@@ -18,9 +18,9 @@ class StrategyConfigHandler(FileSystemEventHandler):
             self.strategy_factory.update_strategies()
 
 class StrategyFactory:
-    def __init__(self, config, config_file_path: str, MarketMaker):
-        self.config_file_path = config_file_path
-        market_maker = MarketMaker(config, 'strategies.json')
+    def __init__(self, market_maker, config, strategy_config_path):
+        self.strategy_config_path = strategy_config_path
+        self.market_maker = market_maker
         self.strategies: Dict[str, Strategy] = {}
         self.update_strategies()
         self.signal_methods = self.create_signal_methods()

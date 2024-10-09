@@ -29,27 +29,25 @@ class OrderPlacementError(MarketMakerError):
 class MarketMaker:
     def __init__(self, config, strategy_config_path):
         self.config = config
-        self.logger = logging.getLogger(__name__)
-        self.strategies: Dict[str, Strategy] = {}
+        self.strategy_config_path = strategy_config_path
         self.exchange = ccxt.kraken({
             'apiKey': config.KRAKEN_API_KEY,
             'secret': config.KRAKEN_SECRET_KEY,
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}
         })
-        self.wallet = None        
+        self.wallet = None
         self.order_book = OrderBook(self.exchange, config.SYMBOL)
         self.risk_manager = RiskManager(config)
         self.inventory_manager = InventoryManager(config, self.exchange)
         self.compliance_checker = ComplianceChecker(config)
         self.current_orders = {}
-        self.strategy_factory = StrategyFactory(strategy_config_path, self)
-        self.strategies = self.strategy_factory.strategies
+        self.strategies = {}
         self.strategy_selector = StrategySelector(config)
         self.strategy_performance = {}
         self.events = []
         self.current_strategy = None
-        self.observer = Observer
+        self.observer = Observer()
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()
@@ -80,7 +78,10 @@ class MarketMaker:
 
     async def initialize(self):
         await self.exchange.load_markets()
+        self.wallet = Wallet(self.exchange)
         await self.wallet.connect()
+        self.strategy_factory = StrategyFactory(self, self.config, self.strategy_config_path)
+        self.strategies = await self.strategy_factory.create_strategies()
         self.logger.info(f"Connected to {self.exchange.name}")
         self.logger.info(f"Current balances: {self.wallet.balances}")
 
