@@ -17,18 +17,18 @@ from queue import Queue
 
 class TradingSystem:
     def __init__(self, config, historical_data):
-        self.config = config  # Use the passed config, not the Config class
+        self.config = config
         self.historical_data = historical_data
         self.results_queue = Queue()
         self.backtester = Backtester(config, historical_data, self.results_queue)
         self.exchange = ccxt.kraken({
             'apiKey': os.getenv('KRAKEN_API_KEY'),
-            'secret': os.getenv('KRAKEN_SECRET'),
+            'secret': os.getenv('KRAKEN_PRIVATE_KEY'),
             'enableRateLimit': True,
         })
         self.wallet = Wallet(self.exchange)
         self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
-        self.market_maker.set_wallet(self.wallet)  # Set the wallet for the market maker
+        self.market_maker.set_wallet(self.wallet)
         self.is_running = False
         self.backtest_results = None
         self.mode = None
@@ -36,8 +36,8 @@ class TradingSystem:
         self.executor = ThreadPoolExecutor(max_workers=3)
 
     async def start(self):
-        await self.wallet.connect()  # Connect the wallet
-        await self.market_maker.initialize()  # Initialize the market maker
+        await self.wallet.connect()
+        await self.market_maker.initialize()
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
 
@@ -98,8 +98,67 @@ class TradingSystem:
                 print(f"Error in main loop: {e}")
 
     async def process_backtest_results(self, results):
-        if self.mode == 3:
-            self.market_maker.update_strategy(results)
+        if self.mode in [1, 3]:
+            print("Processing backtest results...")
+        
+            # 1. Calculate and print performance metrics
+            total_return = results['total_return']
+            sharpe_ratio = results['sharpe_ratio']
+            max_drawdown = results['max_drawdown']
+            win_rate = results['win_rate']
+        
+            print(f"Total Return: {total_return:.2%}")
+            print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+            print(f"Max Drawdown: {max_drawdown:.2%}")
+            print(f"Win Rate: {win_rate:.2%}")
+        
+            # 2. Analyze trade distribution
+            trade_counts = results['trade_counts']
+            print("\nTrade Distribution:")
+            for strategy, count in trade_counts.items():
+                print(f"{strategy}: {count} trades")
+        
+            # 3. Identify best performing strategies
+            strategy_returns = results['strategy_returns']
+            best_strategy = max(strategy_returns, key=strategy_returns.get)
+            print(f"\nBest performing strategy: {best_strategy} with return: {strategy_returns[best_strategy]:.2%}")
+        
+            # 4. Plot equity curve
+            if 'equity_curve' in results:
+                self.plot_equity_curve(results['equity_curve'])
+        
+            # 5. Save results to file
+            self.save_results_to_file(results)
+        
+            # 6. Update market maker strategy if in mode 3
+            if self.mode == 3:
+                print("Updating market maker strategy based on backtest results...")
+                self.market_maker.update_strategy(results)
+            
+                # Optionally, you could update specific parameters of the market maker
+                # based on the backtest results. For example:
+                if total_return > 0.05:  # If total return is greater than 5%
+                    self.market_maker.increase_risk_tolerance()
+                elif total_return < -0.02:  # If total return is less than -2%
+                    self.market_maker.decrease_risk_tolerance()
+
+    def plot_equity_curve(self, equity_curve):
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(12, 6))
+        plt.plot(equity_curve)
+        plt.title('Equity Curve')
+        plt.xlabel('Trade Number')
+        plt.ylabel('Equity')
+        plt.grid(True)
+        plt.savefig('equity_curve.png')
+        plt.close()
+        print("Equity curve plot saved as 'equity_curve.png'")
+
+    def save_results_to_file(self, results):
+        import json
+        with open('backtest_results.json', 'w') as f:
+            json.dump(results, f, indent=4)
+        print("Backtest results saved to 'backtest_results.json'")
 
     async def process_results_queue(self):
         while self.is_running:

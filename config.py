@@ -13,12 +13,12 @@ class Config:
             'CRYPTO_COMPARE_API_KEY': os.getenv("CRYPTO_COMPARE_API_KEY"),
             'MORALIS_API_KEY': os.getenv('MORALIS_API_KEY'),
             'KRAKEN_API_KEY': os.getenv('API_KEY'),
-            'KRAKEN_SECRET_KEY': os.getenv('KRAKEN_SECRET_KEY'),
+            'KRAKEN_PRIVATE_KEY': os.getenv('KRAKEN_SECRET_KEY'),
             'GOOGLE_AI_API_KEY': genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY']),
             'PROFIT_SHARING_ADDRESS': '0x9A252E29eB31d76BcC3408E5F98694a0f7A764D6',  # Replace with the actual MetaMask address
             'PROFIT_SHARING_PERCENTAGE': 0.05,  # 5%
             # Trading parameters
-            'SYMBOL': 'XBT/USDT',
+            'SYMBOL': 'BTC/USDT',
             'INITIAL_CAPITAL': 10000,
             'SENTIMENT_THRESHOLD_LOW': 30,
             'SENTIMENT_THRESHOLD_HIGH': 70,
@@ -201,20 +201,20 @@ class Config:
         volatility = self.get_current_volatility()
 
         self.ADAPTIVE_PARAMS['MAX_POSITION_SIZE'] = min(
-            self.BASE_PARAMS['MAX_POSITION_SIZE'], 
+            self.ADAPTIVE_PARAMS['MAX_POSITION_SIZE'], 
             self.portfolio_value * 0.1 / btc_price
         )
 
         if self.portfolio_value > 100000:
-            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.BASE_PARAMS['RISK_PER_TRADE'] * 0.8
+            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] * 0.8
         elif self.portfolio_value < 10000:
-            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.BASE_PARAMS['RISK_PER_TRADE'] * 1.2
+            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] * 1.2
         else:
-            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.BASE_PARAMS['RISK_PER_TRADE']
+            self.ADAPTIVE_PARAMS['RISK_PER_TRADE'] = self.ADAPTIVE_PARAMS['RISK_PER_TRADE']
 
-        self.ADAPTIVE_PARAMS['STOP_LOSS_PCT'] = max(self.BASE_PARAMS['STOP_LOSS_PCT'], volatility * 2)
-        self.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT'] = max(self.BASE_PARAMS['TAKE_PROFIT_PCT'], volatility * 3)
-        self.ADAPTIVE_PARAMS['LIQUIDITY_THRESHOLD'] = self.BASE_PARAMS['LIQUIDITY_THRESHOLD'] * btc_price / 10000
+        self.ADAPTIVE_PARAMS['STOP_LOSS_PCT'] = max(self.ADAPTIVE_PARAMS['STOP_LOSS_PCT'], volatility * 2)
+        self.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT'] = max(self.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT'], volatility * 3)
+        self.ADAPTIVE_PARAMS['LIQUIDITY_THRESHOLD'] = self.ADAPTIVE_PARAMS['LIQUIDITY_THRESHOLD'] * btc_price / 10000
 
         # Adjust dynamic hedging parameters
         if volatility > self.BASE_PARAMS['HEDGE_ACTIVATION_THRESHOLD'] and not self.dynamic_hedging_active:
@@ -236,13 +236,13 @@ class Config:
 
     def get_current_volatility(self):
         try:
-            ohlcv = self.exchange.fetch_ohlcv(self.BASE_PARAMS['SYMBOL'], '1d', limit=self.BASE_PARAMS['VOLATILITY_WINDOW'])
+            ohlcv = self.exchange.fetch_ohlcv(self.BASE_PARAMS['SYMBOL'], '1d', limit=self.ADAPTIVE_PARAMS['VOLATILITY_WINDOW'])
             closes = [x[4] for x in ohlcv]
             returns = [closes[i]/closes[i-1] - 1 for i in range(1, len(closes))]
             return float(Decimal(str(sum(returns) / len(returns))).quantize(Decimal('0.0001')))
         except Exception as e:
             print(f"Error calculating volatility: {e}")
-            return self.BASE_PARAMS['VOLATILITY_THRESHOLD']
+            return self.ADAPTIVE_PARAMS['VOLATILITY_THRESHOLD']
 
     def get_portfolio_value(self):
         return self.portfolio_value

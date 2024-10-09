@@ -32,7 +32,7 @@ class MarketMaker:
         self.strategy_config_path = strategy_config_path
         self.exchange = ccxt.kraken({
             'apiKey': config.KRAKEN_API_KEY,
-            'secret': config.KRAKEN_SECRET_KEY,
+            'secret': config.KRAKEN_PRIVATE_KEY,
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}
         })
