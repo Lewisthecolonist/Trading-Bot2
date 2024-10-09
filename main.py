@@ -20,6 +20,7 @@ async def main():
     historical_data = load_historical_data()
     trading_system = TradingSystem(config, historical_data)
     await trading_system.start()
+    await trading_system.main_loop()
 
 if __name__ == "__main__":
     asyncio.run(main())

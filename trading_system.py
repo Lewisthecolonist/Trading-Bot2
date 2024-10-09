@@ -35,6 +35,8 @@ class TradingSystem:
         self.loop = asyncio.get_event_loop()
         self.executor = ThreadPoolExecutor(max_workers=3)
         self.start_time = None
+        self.backtest_duration = float(config.BASE_PARAMS['BACKTEST_DURATION'])
+        self.market_maker_duration = float(config.BASE_PARAMS['MARKET_MAKER_DURATION'])
 
     def get_user_choice(self):
         while True:
@@ -51,55 +53,34 @@ class TradingSystem:
             except ValueError:
                 print("Invalid input. Please enter a number.")
 
-    async def stop(self):
-        self.is_running = False
-        await self.wallet.close()
-        self.executor.shutdown(wait=True)
-
     async def start(self):
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
         self.start_time = time.time()
         await self.market_maker.initialize()
 
-        if self.mode == 1:
-            await self.run_backtester_with_duration()
-        elif self.mode == 2:
-            await self.run_market_maker_with_duration()
-        elif self.mode == 3:
-            await asyncio.gather(
-                self.run_backtester_with_duration(),
-                self.run_market_maker_with_duration()
-            )
+    async def main_loop(self):
+        tasks = []
+        if self.mode in [1, 3]:
+            tasks.append(self.run_backtester())
+        if self.mode in [2, 3]:
+            tasks.append(self.run_market_maker())
+        tasks.append(self.process_results_queue())
 
-    async def run_backtester_with_duration(self):
-        duration = float(self.config.BASE_PARAMS['BACKTEST_DURATION'])
-        if duration > 0:
-            try:
-                await asyncio.wait_for(self.run_backtester(), timeout=duration)
-            except asyncio.TimeoutError:
-                print(f"Backtester completed after {duration} seconds")
-        else:
-            await self.run_backtester()
-
-    async def run_market_maker_with_duration(self):
-        duration = float(self.config.BASE_PARAMS['MARKET_MAKER_DURATION'])
-        if duration > 0:
-            try:
-                await asyncio.wait_for(self.run_market_maker(), timeout=duration)
-            except asyncio.TimeoutError:
-                print(f"Market maker completed after {duration} seconds")
-        else:
-            await self.run_market_maker()
+        await asyncio.gather(*tasks)
 
     async def run_backtester(self):
-        while self.is_running:
+        end_time = self.start_time + self.backtest_duration if self.backtest_duration > 0 else None
+        while self.is_running and (end_time is None or time.time() < end_time):
             self.backtest_results = await self.loop.run_in_executor(self.executor, self.backtester.run)
             self.results_queue.put(self.backtest_results)
+            await self.process_backtest_results(self.backtest_results)
             await asyncio.sleep(self.config.BASE_PARAMS['BACKTEST_UPDATE_INTERVAL'])
+        print("Backtester completed")
 
     async def run_market_maker(self):
-        while self.is_running:
+        end_time = self.start_time + self.market_maker_duration if self.market_maker_duration > 0 else None
+        while self.is_running and (end_time is None or time.time() < end_time):
             try:
                 market_data = await self.get_latest_market_data()
                 self.market_maker.update(market_data)
@@ -107,17 +88,23 @@ class TradingSystem:
                 await asyncio.sleep(self.config.MARKET_MAKER_UPDATE_INTERVAL)
             except Exception as e:
                 print(f"Error in market maker: {e}")
+        print("Market maker completed")
 
-    async def main_loop(self):
+    async def process_results_queue(self):
         while self.is_running:
             try:
-                if self.mode in [1, 3]:
-                    if self.backtest_results:
-                        await self.process_backtest_results(self.backtest_results)
-                        self.backtest_results = None
-                await asyncio.sleep(1)  # Prevent busy waiting
+                if not self.results_queue.empty():
+                    result = self.results_queue.get_nowait()
+                    await self.process_backtest_results(result)
+                else:
+                    await asyncio.sleep(0.1)  # Short sleep to prevent busy waiting
             except Exception as e:
-                print(f"Error in main loop: {e}")
+                print(f"Error processing results queue: {e}")
+
+    async def stop(self):
+        self.is_running = False
+        await self.wallet.close()
+        self.executor.shutdown(wait=True)
 
     async def process_backtest_results(self, results):
         if self.mode in [1, 3]:
@@ -181,17 +168,6 @@ class TradingSystem:
         with open('backtest_results.json', 'w') as f:
             json.dump(results, f, indent=4)
         print("Backtest results saved to 'backtest_results.json'")
-
-    async def process_results_queue(self):
-        while self.is_running:
-            try:
-                if not self.results_queue.empty():
-                    result = self.results_queue.get_nowait()
-                    await self.process_backtest_results(result)
-                else:
-                    await asyncio.sleep(0.1)  # Short sleep to prevent busy waiting
-            except Exception as e:
-                print(f"Error processing results queue: {e}")
 
     async def get_latest_market_data(self):
         try:

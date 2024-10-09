@@ -27,7 +27,7 @@ class RiskManager:
         self.volatility_window = config.VOLATILITY_WINDOW
         self.liquidity_threshold = config.LIQUIDITY_THRESHOLD
 
-    def fetch_order_book(self, symbol='XBT/USDT', limit=20):
+    def fetch_order_book(self, symbol='BTC/USDT', limit=20):
         return self.exchange.fetch_order_book(symbol, limit)
 
     def check_liquidity(self, order_book):

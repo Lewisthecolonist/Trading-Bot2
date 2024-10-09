@@ -285,7 +285,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.portfolio_value = self.cash + self.current_position * current_price
 
     def update_strategy(self, timestamp):
-        if len(self.strategies) < self.config.MAX_STRATEGIES:
+        if len(self.strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES']:
             new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp))
             optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
             self.strategies[optimized_strategy.name] = optimized_strategy
