@@ -13,7 +13,7 @@ class Config:
             'CRYPTO_COMPARE_API_KEY': os.getenv("CRYPTO_COMPARE_API_KEY"),
             'MORALIS_API_KEY': os.getenv('MORALIS_API_KEY'),
             'KRAKEN_API_KEY': os.getenv('API_KEY'),
-            'KRAKEN_PRIVATE_KEY': os.getenv('KRAKEN_SECRET_KEY'),
+            'KRAKEN_PRIVATE_KEY': os.getenv('KRAKEN_PRIVATE_KEY'),
             'GOOGLE_AI_API_KEY': genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY']),
             'PROFIT_SHARING_ADDRESS': '0x9A252E29eB31d76BcC3408E5F98694a0f7A764D6',  # Replace with the actual MetaMask address
             'PROFIT_SHARING_PERCENTAGE': 0.05,  # 5%
