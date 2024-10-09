@@ -48,7 +48,7 @@ class Config:
             'MAX_PRICE_DEVIATION': Decimal('0.05'),  # 5% maximum deviation from current price
             'POSITION_RISK_PERCENTAGE': Decimal('0.1'),  # 10% of total portfolio value for each position
             'ORDER_REFRESH_RATE': 60,  # Refresh orders every 60 seconds
-
+            'MARKET_MAKER_DURATION': input('Choose the length of time if you want the Market Maker to run. if you want it to run indefinitely then simply put 0'),
             # Error handling
             'NETWORK_ERROR_RETRY_WAIT': 60,  # seconds
             'ERROR_RETRY_INTERVAL': 300,  # seconds

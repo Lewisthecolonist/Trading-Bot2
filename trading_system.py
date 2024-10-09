@@ -34,22 +34,7 @@ class TradingSystem:
         self.mode = None
         self.loop = asyncio.get_event_loop()
         self.executor = ThreadPoolExecutor(max_workers=3)
-
-    async def start(self):
-        await self.wallet.connect()
-        await self.market_maker.initialize()
-        self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
-        self.is_running = True
-
-        tasks = []
-        if self.mode in [1, 3]:
-            tasks.append(self.loop.run_in_executor(self.executor, self.run_backtester))
-        if self.mode in [2, 3]:
-            tasks.append(self.run_market_maker())
-        tasks.append(self.main_loop())
-        tasks.append(self.process_results_queue())
-
-        await asyncio.gather(*tasks)
+        self.start_time = None
 
     def get_user_choice(self):
         while True:
@@ -71,9 +56,47 @@ class TradingSystem:
         await self.wallet.close()
         self.executor.shutdown(wait=True)
 
-    def run_backtester(self):
-        self.backtest_results = self.backtester.run()
-        return self.backtest_results
+    async def start(self):
+        self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
+        self.is_running = True
+        self.start_time = time.time()
+        await self.market_maker.initialize()
+
+        if self.mode == 1:
+            await self.run_backtester_with_duration()
+        elif self.mode == 2:
+            await self.run_market_maker_with_duration()
+        elif self.mode == 3:
+            await asyncio.gather(
+                self.run_backtester_with_duration(),
+                self.run_market_maker_with_duration()
+            )
+
+    async def run_backtester_with_duration(self):
+        duration = float(self.config.BASE_PARAMS['BACKTEST_DURATION'])
+        if duration > 0:
+            try:
+                await asyncio.wait_for(self.run_backtester(), timeout=duration)
+            except asyncio.TimeoutError:
+                print(f"Backtester completed after {duration} seconds")
+        else:
+            await self.run_backtester()
+
+    async def run_market_maker_with_duration(self):
+        duration = float(self.config.BASE_PARAMS['MARKET_MAKER_DURATION'])
+        if duration > 0:
+            try:
+                await asyncio.wait_for(self.run_market_maker(), timeout=duration)
+            except asyncio.TimeoutError:
+                print(f"Market maker completed after {duration} seconds")
+        else:
+            await self.run_market_maker()
+
+    async def run_backtester(self):
+        while self.is_running:
+            self.backtest_results = await self.loop.run_in_executor(self.executor, self.backtester.run)
+            self.results_queue.put(self.backtest_results)
+            await asyncio.sleep(self.config.BASE_PARAMS['BACKTEST_UPDATE_INTERVAL'])
 
     async def run_market_maker(self):
         while self.is_running:
@@ -92,8 +115,7 @@ class TradingSystem:
                     if self.backtest_results:
                         await self.process_backtest_results(self.backtest_results)
                         self.backtest_results = None
-                elif self.mode == 2:
-                    asyncio.sleep(1) # Prevent busy waiting
+                await asyncio.sleep(1)  # Prevent busy waiting
             except Exception as e:
                 print(f"Error in main loop: {e}")
 
