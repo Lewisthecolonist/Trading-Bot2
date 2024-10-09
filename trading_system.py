@@ -3,11 +3,11 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from backtester import Backtester
 from market_maker import MarketMaker
+from wallet import Wallet
 import time
 from config import Config
 import zipfile
 import io
-from wallet import Wallet
 import os
 import ccxt.async_support as ccxt
 import datetime
@@ -17,18 +17,18 @@ from queue import Queue
 
 class TradingSystem:
     def __init__(self, config, historical_data):
-        self.config = Config
+        self.config = config  # Use the passed config, not the Config class
         self.historical_data = historical_data
         self.results_queue = Queue()
         self.backtester = Backtester(config, historical_data, self.results_queue)
-        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
         self.exchange = ccxt.kraken({
             'apiKey': os.getenv('KRAKEN_API_KEY'),
             'secret': os.getenv('KRAKEN_SECRET'),
             'enableRateLimit': True,
         })
-        self.market_maker.set_wallet(self.wallet)  # Set the wallet for the market maker
         self.wallet = Wallet(self.exchange)
+        self.market_maker = MarketMaker(config, strategy_config_path='strategies.json')
+        self.market_maker.set_wallet(self.wallet)  # Set the wallet for the market maker
         self.is_running = False
         self.backtest_results = None
         self.mode = None
@@ -36,9 +36,11 @@ class TradingSystem:
         self.executor = ThreadPoolExecutor(max_workers=3)
 
     async def start(self):
+        await self.wallet.connect()  # Connect the wallet
+        await self.market_maker.initialize()  # Initialize the market maker
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         self.is_running = True
-        await self.market_maker.initialize()
+
         tasks = []
         if self.mode in [1, 3]:
             tasks.append(self.loop.run_in_executor(self.executor, self.run_backtester))
@@ -165,6 +167,7 @@ class TradingSystem:
             }
             
             return market_data
+        
         except Exception as e:
             print(f"Error fetching market data: {e}")
             return None
