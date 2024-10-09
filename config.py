@@ -142,7 +142,7 @@ class Config:
         # Initialize exchange
         self.exchange = ccxt.kraken({
             'apiKey': self.BASE_PARAMS['KRAKEN_API_KEY'],
-            'secret': self.BASE_PARAMS['KRAKEN_SECRET_KEY'],
+            'secret': self.BASE_PARAMS['KRAKEN_PRIVATE_KEY'],
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}  # Use this for futures trading
         })
