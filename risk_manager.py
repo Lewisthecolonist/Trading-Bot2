@@ -16,7 +16,7 @@ class RiskManager:
         self.moralis_api_key = config.MORALIS_API_KEY
         self.exchange = ccxt.kraken({
             'apiKey': config.KRAKEN_API_KEY,
-            'secret': config.KRAKEN_SECRET_KEY,
+            'secret': config.KRAKEN_PRIVATE_KEY
         })
 
         # Risk parameters
