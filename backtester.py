@@ -197,7 +197,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.strategy_selector = StrategySelector(config)
         self.market_simulator = MarketSimulator(config, strategy)
         self.risk_manager = RiskManager(config)
-        self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, strategy)
+        self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, self.strategies)
 
     def run(self):
         while not self.stop_event.is_set():
@@ -281,7 +281,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         })
 
     def get_recent_data(self, timestamp: pd.Timestamp) -> pd.DataFrame:
-        lookback = self.config.LOOKBACK_PERIOD
+        lookback = self.config.ADAPTIVE_PARAMS['LOOKBACK_PERIOD']
         end_index = self.historical_data.index.get_loc(timestamp)
         start_index = max(0, end_index - lookback)
         return self.historical_data.iloc[start_index:end_index + 1]
@@ -304,7 +304,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
             worst_strategy = min(performances, key=performances.get)
             new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp))
             optimized_strategy, new_performance = self.strategy_optimizer.optimize_strategy(new_strategy)
-            
+        
             if new_performance > performances[worst_strategy]:
                 del self.strategies[worst_strategy]
                 self.strategies[optimized_strategy.name] = optimized_strategy

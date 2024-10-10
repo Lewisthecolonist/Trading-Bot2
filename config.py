@@ -89,7 +89,7 @@ class Config:
             'RSI_PERIOD': 14,
             'RSI_OVERBOUGHT': 70,
             'RSI_OVERSOLD': 30,
-            
+            'LOOKBACK_PERIOD': 7,
             'TRADING_FEE': 0.001,
             'MAX_POSITION_SIZE': 0.1,
             'STOP_LOSS_PCT': 0.05,

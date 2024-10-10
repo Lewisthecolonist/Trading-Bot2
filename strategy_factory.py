@@ -1,5 +1,7 @@
 from typing import Dict, Any, Callable
 import json
+from strategy import Strategy
+import importlib
 import os
 import pandas as pd
 from strategy import Strategy
@@ -51,12 +53,21 @@ class StrategyFactory:
             configs = json.load(f)
         return {config['name']: config for config in configs}
 
-    def create_strategy(self, config: Dict[str, Any]) -> Strategy:
-        name = config['name']
-        description = config['description']
-        signal_function = self.get_signal_function(config['signal_type'])
-        parameters = config['parameters']
-        return Strategy(name, description, signal_function, parameters)
+    @staticmethod
+    def create_strategy(strategy_name, params):
+        try:
+            # Dynamically import the strategy module
+            module = importlib.import_module(f"strategies.{strategy_name}")
+            strategy_class = getattr(module, strategy_name)
+            return strategy_class(params)
+        except (ImportError, AttributeError):
+            raise ValueError(f"Strategy '{strategy_name}' not found")
+
+    @staticmethod
+    def get_available_strategies():
+        strategies_dir = os.path.join(os.path.dirname(__file__), "strategies")
+        strategy_files = [f[:-3] for f in os.listdir(strategies_dir) if f.endswith(".py") and f != "__init__.py"]
+        return strategy_files
 
     def create_signal_methods(self) -> Dict[str, Callable]:
         signal_methods = {}

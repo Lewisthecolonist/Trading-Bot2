@@ -24,7 +24,7 @@ class StrategyGenerator:
         prompt += f"Volume: {market_data['volume'].tail().to_dict()}\n"
         prompt += f"50-day moving average: {market_data['close'].rolling(50).mean().iloc[-1]}\n"
         prompt += f"14-day RSI: {self.calculate_rsi(market_data['close'], 14).iloc[-1]}\n"
-        prompt += f"Generate {self.config.NUM_STRATEGIES_TO_GENERATE} trading strategies suitable for these market conditions. For each strategy, provide:\n"
+        prompt += f"Generate {self.config.BASE_PARAMS['NUM_STRATEGIES_TO_GENERATE']} trading strategies suitable for these market conditions. For each strategy, provide:\n"
         prompt += "1. A name for the strategy\n"
         prompt += "2. A brief description of how it works\n"
         prompt += "3. The key parameters it uses (e.g., moving average periods, RSI thresholds) in the format 'parameter_name: value'\n"
