@@ -5,10 +5,10 @@ from sklearn.model_selection import TimeSeriesSplit
 from typing import Dict, Tuple, List
 
 class StrategyOptimizer:
-    def __init__(self, config, market_simulator, strategies: Dict[str, 'Strategy']):
+    def __init__(self, config, market_simulator, strategies):
         self.config = config
         self.market_simulator = market_simulator
-        self.strategies = strategies
+        self.strategies = {strategy.name: strategy for strategy in strategies}
 
     def optimize_strategy(self, strategy_name: str) -> Tuple['Strategy', float]:
         if strategy_name not in self.strategies:
@@ -73,9 +73,10 @@ class StrategyOptimizer:
 
     def optimize_all_strategies(self) -> List[Tuple['Strategy', float]]:
         optimized_strategies = Parallel(n_jobs=-1)(
-            delayed(self.optimize_strategy)(strategy_name) for strategy_name in self.strategies
+            delayed(self.optimize_strategy)(strategy_name) for strategy_name in self.strategies.keys()
         )
         return sorted(optimized_strategies, key=lambda x: x[1], reverse=True)
+
     
     def temporary_optimize(self, strategy: 'Strategy') -> 'Strategy':
         original_params = strategy.get_parameters()
@@ -85,7 +86,7 @@ class StrategyOptimizer:
         
         yield optimized_strategy
         
-        strategy.set_parameters(original_params)
+        strategy.update_parameters(original_params)
         strategy.set_capital(original_capital)
         
         return strategy
