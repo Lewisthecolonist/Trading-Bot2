@@ -2,29 +2,30 @@ import google.generativeai as genai
 import pandas as pd
 import os
 import json
-import numpy as np
-from typing import Dict, List, Any
-from strategy import Strategy
+from typing import Dict, List
+from strategy import Strategy, TimeFrame
 
 class StrategyGenerator:
     def __init__(self, config):
         self.config = config
         genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY'])
         self.model = genai.GenerativeModel('gemini-pro')
-        self.strategies = {}
 
-    def generate_strategies(self, market_data: pd.DataFrame) -> List[Strategy]:
-        prompt = self._create_prompt(market_data)
-        response = self.model.generate_content(prompt)
-        return self.parse_strategies(response.text)
+    def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
+        strategies = {}
+        for time_frame in TimeFrame:
+            prompt = self._create_prompt(market_data, time_frame)
+            response = self.model.generate_content(prompt)
+            strategies[time_frame] = self.parse_strategies(response.text, time_frame)
+        return strategies
 
-    def _create_prompt(self, market_data: pd.DataFrame) -> str:
-        prompt = f"Given the following market data:\n"
+    def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
+        prompt = f"Given the following market data for {time_frame.value} analysis:\n"
         prompt += f"Asset prices: {market_data['close'].tail().to_dict()}\n"
         prompt += f"Volume: {market_data['volume'].tail().to_dict()}\n"
         prompt += f"50-day moving average: {market_data['close'].rolling(50).mean().iloc[-1]}\n"
         prompt += f"14-day RSI: {self.calculate_rsi(market_data['close'], 14).iloc[-1]}\n"
-        prompt += f"Generate {self.config.BASE_PARAMS['NUM_STRATEGIES_TO_GENERATE']} trading strategies suitable for these market conditions. For each strategy, provide:\n"
+        prompt += f"Generate {self.config.BASE_PARAMS['NUM_STRATEGIES_TO_GENERATE']} trading strategies suitable for {time_frame.value} trading. For each strategy, provide:\n"
         prompt += "1. A name for the strategy\n"
         prompt += "2. A brief description of how it works\n"
         prompt += "3. The key parameters it uses (e.g., moving average periods, RSI thresholds) in the format 'parameter_name: value'\n"
@@ -32,16 +33,16 @@ class StrategyGenerator:
         prompt += "Provide the response in JSON format."
         return prompt
 
-    def parse_strategies(self, strategies_text: str) -> List[Strategy]:
+    def parse_strategies(self, strategies_text: str, time_frame: TimeFrame) -> List[Strategy]:
         generated_strategies = []
         try:
             strategies_data = json.loads(strategies_text)
         except json.JSONDecodeError:
-            print("Error parsing JSON response. Falling back to default strategy.")
+            print(f"Error parsing JSON response for {time_frame.value}. Falling back to default strategy.")
             return [Strategy("Default Strategy", "Simple moving average crossover", 
                              {"INITIAL_CAPITAL": 10000, "MAX_POSITION_SIZE": 0.1, "TRADING_FEE": 0.001, 
                               "short_ma_window": 10, "long_ma_window": 50},
-                             ['trend_following'])]
+                             ['trend_following'], time_frame)]
 
         for strategy_data in strategies_data:
             name = strategy_data.get('name', '')
@@ -59,7 +60,7 @@ class StrategyGenerator:
                 parameters[f'{pattern}_weight'] = 1.0 / len(favored_patterns)
 
             if name and description and parameters and favored_patterns:
-                generated_strategies.append(Strategy(name, description, parameters, favored_patterns))
+                generated_strategies.append(Strategy(name, description, parameters, favored_patterns, time_frame))
 
         return generated_strategies
 

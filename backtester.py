@@ -295,9 +295,9 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
     def update_strategy(self, timestamp):
         if len(self.strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES']:
-            new_strategy = self.strategy_generator.generate_strategies(self.get_recent_data(timestamp))
-            optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
-            self.strategies[optimized_strategy.name] = optimized_strategy
+            strategy_name = self.strategy.name
+            optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(strategy_name)
+            self.strategy = optimized_strategy
         else:
             # Replace the worst performing strategy
             performances = self.calculate_strategy_performance()
