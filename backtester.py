@@ -218,6 +218,15 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
     def stop(self):
         self.stop_event.set()
+    
+    async def execute_trade(self, signal, event):
+        try:
+            if signal > 0:
+                await self.exchange.create_market_buy_order(self.config.SYMBOL, self.calculate_position_size(event))
+            elif signal < 0:
+                await self.exchange.create_market_sell_order(self.config.SYMBOL, self.calculate_position_size(event))
+        except Exception as e:
+            print(f"Error executing trade: {e}")
 
     def process_events(self):
         while self.events:
@@ -286,7 +295,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
     def update_strategy(self, timestamp):
         if len(self.strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES']:
-            new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp))
+            new_strategy = self.strategy_generator.generate_strategies(self.get_recent_data(timestamp))
             optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
             self.strategies[optimized_strategy.name] = optimized_strategy
         else:

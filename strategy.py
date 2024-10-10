@@ -163,3 +163,38 @@ class Strategy:
         max_wins = max(streaks[::2]) if len(streaks) > 0 else 0
         max_losses = max(streaks[1::2]) if len(streaks) > 1 else 0
         return max_wins, max_losses
+
+class TrendFollowingStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: str, parameters: Dict[str, Any]):
+        super().__init__("Trend Following", "A strategy that follows market trends", parameters, ["trend_following"], config, timestamp, time_frame)
+
+    def generate_signal(self, market_data: pd.DataFrame) -> float:
+        return self._trend_following_signal(market_data)
+
+class MeanReversionStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: str, parameters: Dict[str, Any]):
+        super().__init__("Mean Reversion", "A strategy that assumes prices will revert to the mean", parameters, ["mean_reversion"], config, timestamp, time_frame)
+
+    def generate_signal(self, market_data: pd.DataFrame) -> float:
+        return self._mean_reversion_signal(market_data)
+
+class MomentumStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: str, parameters: Dict[str, Any]):
+        super().__init__("Momentum", "A strategy that follows price momentum", parameters, ["momentum"], config, timestamp, time_frame)
+
+    def generate_signal(self, market_data: pd.DataFrame) -> float:
+        return self._momentum_signal(market_data)
+
+class VolatilityStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: str, parameters: Dict[str, Any]):
+        super().__init__("Volatility", "A strategy that trades based on market volatility", parameters, ["volatility_clustering"], config, timestamp, time_frame)
+
+    def generate_signal(self, market_data: pd.DataFrame) -> float:
+        return self._volatility_clustering_signal(market_data)
+
+class PatternRecognitionStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: str, parameters: Dict[str, Any]):
+        super().__init__("Pattern Recognition", "A strategy that recognizes and trades on specific price patterns", parameters, ["breakout"], config, timestamp, time_frame)
+
+    def generate_signal(self, market_data: pd.DataFrame) -> float:
+        return self._breakout_signal(market_data)
