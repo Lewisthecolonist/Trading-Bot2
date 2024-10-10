@@ -182,11 +182,11 @@ class BacktestReport:
 class Backtester(multiprocessing.Process):  # or threading.Thread
     def __init__(self, config, historical_data: pd.DataFrame, result_queue):
         super().__init__()
-        self.config = Config
+        self.config = config
         self.historical_data = historical_data
         self.events = deque()
         self.current_position = 0
-        self.cash = config.INITIAL_CAPITAL
+        self.cash = config.BASE_PARAMS['INITIAL_CAPITAL']
         self.portfolio_value = self.cash
         self.strategies = {}
         self.trades = []

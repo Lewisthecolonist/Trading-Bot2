@@ -13,19 +13,19 @@ class RiskManager:
         self.config = config
 
         # Initialize APIs
-        self.moralis_api_key = config.MORALIS_API_KEY
+        self.moralis_api_key = config.BASE_PARAMS['MORALIS_API_KEY']
         self.exchange = ccxt.kraken({
-            'apiKey': config.KRAKEN_API_KEY,
-            'secret': config.KRAKEN_PRIVATE_KEY
+            'apiKey': config.BASE_PARAMS['KRAKEN_API_KEY'],
+            'secret': config.BASE_PARAMS['KRAKEN_PRIVATE_KEY']
         })
 
         # Risk parameters
-        self.max_position_size = config.MAX_POSITION_SIZE
-        self.base_stop_loss_pct = config.BASE_STOP_LOSS_PCT
-        self.base_take_profit_pct = config.BASE_TAKE_PROFIT_PCT
-        self.max_drawdown = config.MAX_DRAWDOWN
-        self.volatility_window = config.VOLATILITY_WINDOW
-        self.liquidity_threshold = config.LIQUIDITY_THRESHOLD
+        self.max_position_size = config.ADAPTIVE_PARAMS['MAX_POSITION_SIZE']
+        self.base_stop_loss_pct = config.BASE_PARAMS['BASE_STOP_LOSS_PCT']
+        self.base_take_profit_pct = config.BASE_PARAMS['BASE_TAKE_PROFIT_PCT']
+        self.max_drawdown = config.ADAPTIVE_PARAMS['MAX_DRAWDOWN']
+        self.volatility_window = config.ADAPTIVE_PARAMS['VOLATILITY_WINDOW']
+        self.liquidity_threshold = config.ADAPTIVE_PARAMS['LIQUIDITY_THRESHOLD']
 
     def fetch_order_book(self, symbol='BTC/USDT', limit=20):
         return self.exchange.fetch_order_book(symbol, limit)
@@ -36,7 +36,7 @@ class RiskManager:
         return min(bid_liquidity, ask_liquidity) > self.liquidity_threshold
 
     def calculate_position_size(self, portfolio_value, entry_price, stop_loss_price):
-        risk_per_trade = portfolio_value * self.config.RISK_PER_TRADE
+        risk_per_trade = portfolio_value * self.config.ADAPTIVE_PARAMS['RISK_PER_TRADE']
         price_risk = abs(entry_price - stop_loss_price)
         position_size = risk_per_trade / price_risk
         max_allowed = portfolio_value * self.max_position_size

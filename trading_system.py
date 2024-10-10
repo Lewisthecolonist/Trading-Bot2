@@ -20,7 +20,7 @@ class TradingSystem:
         self.config = config
         self.historical_data = historical_data
         self.results_queue = Queue()
-        self.backtester = Backtester(config, historical_data, self.results_queue)
+        self.backtester = Backtester(self.config, historical_data, self.results_queue)
         self.exchange = ccxt.kraken({
             'apiKey': os.getenv('KRAKEN_API_KEY'),
             'secret': os.getenv('KRAKEN_PRIVATE_KEY'),

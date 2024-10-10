@@ -31,13 +31,13 @@ class MarketMaker:
         self.config = config
         self.strategy_config_path = strategy_config_path
         self.exchange = ccxt.kraken({
-            'apiKey': config.KRAKEN_API_KEY,
-            'secret': config.KRAKEN_PRIVATE_KEY,
+            'apiKey': config.BASE_PARAMS['KRAKEN_API_KEY'],
+            'secret': config.BASE_PARAMS['KRAKEN_PRIVATE_KEY'],
             'enableRateLimit': True,
             'options': {'defaultType': 'future'}
         })
         self.wallet = None
-        self.order_book = OrderBook(self.exchange, config.SYMBOL)
+        self.order_book = OrderBook(self.exchange, config.BASE_PARAMS['SYMBOL'])
         self.risk_manager = RiskManager(config)
         self.inventory_manager = InventoryManager(config, self.exchange)
         self.compliance_checker = ComplianceChecker(config)

@@ -161,11 +161,6 @@ class Config:
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
 
-    def __getattr__(self, name):
-        if name in self.ADAPTIVE_PARAMS:
-            return self.ADAPTIVE_PARAMS[name]
-        return self.BASE_PARAMS[name]
-
     def update_adaptive_params(self, strategy):
         self.current_strategy = strategy
         self.ADAPTIVE_PARAMS = {param: strategy.parameters[param] for param in strategy.optimize_params}
