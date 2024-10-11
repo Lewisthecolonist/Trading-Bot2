@@ -42,13 +42,27 @@ class Strategy:
             return self._breakout_signal(market_data)
         elif 'volatility_clustering' in self.favored_patterns:
             return self._volatility_clustering_signal(market_data)
+        elif 'statistical_arbitrage' in self.favored_patterns:
+            return self._statistical_arbitrage_signal(market_data)
+        elif 'sentiment_analysis' in self.favored_patterns:
+            return self._sentiment_analysis_signal(market_data)
         else:
             return 0  # No signal if no recognized pattern
 
     def _trend_following_signal(self, market_data: pd.DataFrame) -> float:
-        short_ma = market_data['close'].rolling(window=self.parameters.get('short_ma_window', 10)).mean().iloc[-1]
-        long_ma = market_data['close'].rolling(window=self.parameters.get('long_ma_window', 50)).mean().iloc[-1]
-        return 1 if short_ma > long_ma else -1 if short_ma < long_ma else 0
+        short_ma = market_data['close'].rolling(window=self.parameters.get('short_ma_window', 10)).mean()
+        long_ma = market_data['close'].rolling(window=self.parameters.get('long_ma_window', 50)).mean()
+    
+        # Add a trend strength indicator
+        trend_strength = (short_ma.iloc[-1] - long_ma.iloc[-1]) / long_ma.iloc[-1]
+        strength_threshold = self.parameters.get('trend_strength_threshold', 0.02)
+    
+        if short_ma.iloc[-1] > long_ma.iloc[-1] and trend_strength > strength_threshold:
+            return 1
+        elif short_ma.iloc[-1] < long_ma.iloc[-1] and trend_strength < -strength_threshold:
+            return -1
+        return 0
+
 
     def _mean_reversion_signal(self, market_data: pd.DataFrame) -> float:
         current_price = market_data['close'].iloc[-1]
@@ -81,9 +95,53 @@ class Strategy:
         volatility_window = self.parameters.get('volatility_window', 20)
         current_volatility = market_data['close'].pct_change().rolling(window=volatility_window).std().iloc[-1]
         avg_volatility = market_data['close'].pct_change().rolling(window=volatility_window).std().mean()
-        if current_volatility > avg_volatility * 1.5:
+    
+        volatility_ratio = current_volatility / avg_volatility
+        high_volatility_threshold = self.parameters.get('high_volatility_threshold', 1.5)
+        low_volatility_threshold = self.parameters.get('low_volatility_threshold', 0.5)
+    
+        if volatility_ratio > high_volatility_threshold:
             return 1 if market_data['close'].pct_change().iloc[-1] > 0 else -1
+        elif volatility_ratio < low_volatility_threshold:
+            return 0.5 if market_data['close'].pct_change().iloc[-1] > 0 else -0.5
         return 0
+
+    
+    def _statistical_arbitrage_signal(self, market_data: pd.DataFrame) -> float:
+        # Assuming we're comparing two related assets
+        asset1 = market_data['asset1_close']
+        asset2 = market_data['asset2_close']
+    
+        # Calculate the spread
+        spread = asset1 - asset2
+    
+        # Calculate z-score of the spread
+        spread_mean = spread.rolling(window=self.parameters.get('lookback_period', 20)).mean()
+        spread_std = spread.rolling(window=self.parameters.get('lookback_period', 20)).std()
+        z_score = (spread.iloc[-1] - spread_mean.iloc[-1]) / spread_std.iloc[-1]
+    
+        # Generate signal based on z-score
+        threshold = self.parameters.get('z_score_threshold', 2)
+        if z_score > threshold:
+            return -1  # Sell asset1, buy asset2
+        elif z_score < -threshold:
+            return 1  # Buy asset1, sell asset2
+        return 0
+
+    def _sentiment_analysis_signal(self, market_data: pd.DataFrame) -> float:
+        # Assuming we have a sentiment score in the market_data
+        sentiment_score = market_data['sentiment_score'].iloc[-1]
+    
+        positive_threshold = self.parameters.get('positive_sentiment_threshold', 0.6)
+        negative_threshold = self.parameters.get('negative_sentiment_threshold', 0.4)
+    
+        if sentiment_score > positive_threshold:
+            return 1  # Bullish signal
+        elif sentiment_score < negative_threshold:
+            return -1  # Bearish signal
+        return 0
+
+
 
     def calculate_performance(self, trades: List[Dict], initial_capital: float) -> Dict[str, float]:
         if not trades:
@@ -195,4 +253,12 @@ class VolatilityStrategy(Strategy):
 
 class PatternRecognitionStrategy(Strategy):
     def __init__(self, config: Config, timestamp: float, time_frame: TimeFrame, parameters: Dict[str, Any]):
-        super().__init__("Pattern Recognition", "A strategy that recognizes and trades on specific price patterns"), parameters, ["breakout"], time_frame
+        super().__init__("Pattern Recognition", "A strategy that recognizes and trades on specific price patterns", parameters, ["breakout"], time_frame)
+
+class StatisticalArbitrageStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: TimeFrame, parameters: Dict[str, Any]):
+        super().__init__("Statistical Arbitrage", "A strategy that exploits price differences between related assets", parameters, ["statistical_arbitrage"], time_frame)
+
+class SentimentAnalysisStrategy(Strategy):
+    def __init__(self, config: Config, timestamp: float, time_frame: TimeFrame, parameters: Dict[str, Any]):
+        super().__init__("Sentiment Analysis", "A strategy that trades based on market sentiment", parameters, ["sentiment_analysis"], time_frame)

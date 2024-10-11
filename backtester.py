@@ -27,6 +27,10 @@ from event import EventType, MarketEvent, SignalEvent, OrderEvent, FillEvent
 import time
 from market_simulator import MarketSimulator
 historical_data = pd.read_csv('historical_data.csv.zip')
+from strategy import TimeFrame
+from strategy import (TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy, 
+                      VolatilityStrategy, PatternRecognitionStrategy, StatisticalArbitrageStrategy, 
+                      SentimentAnalysisStrategy)
 
 class TransactionCostModel:
     def __init__(self, config):
@@ -188,7 +192,23 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.current_position = 0
         self.cash = config.BASE_PARAMS['INITIAL_CAPITAL']
         self.portfolio_value = self.cash
-        self.strategies = {}
+        self.strategies = {
+            TimeFrame.SHORT_TERM: {},
+            TimeFrame.MID_TERM: {},
+            TimeFrame.LONG_TERM: {},
+            TimeFrame.SEASONAL: {}
+        }
+        self.strategy_types = [
+            TrendFollowingStrategy,
+            MeanReversionStrategy,
+            MomentumStrategy,
+            VolatilityStrategy,
+            PatternRecognitionStrategy,
+            StatisticalArbitrageStrategy,
+            SentimentAnalysisStrategy,
+        ]
+        for time_frame in TimeFrame:
+            self.strategies[time_frame] = {}
         self.trades = []
         self.portfolio_values = []
         self.result_queue = result_queue
@@ -294,29 +314,24 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.portfolio_value = self.cash + self.current_position * current_price
 
     def update_strategy(self, timestamp):
-        if len(self.strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES']:
-            strategy_name = self.strategy.name
-            optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(strategy_name)
-            self.strategy = optimized_strategy
-        else:
-            # Replace the worst performing strategy
-            performances = self.calculate_strategy_performance()
-            worst_strategy = min(performances, key=performances.get)
-            new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp))
-            optimized_strategy, new_performance = self.strategy_optimizer.optimize_strategy(new_strategy)
-        
-            if new_performance > performances[worst_strategy]:
-                del self.strategies[worst_strategy]
-                self.strategies[optimized_strategy.name] = optimized_strategy
+        for time_frame in TimeFrame:
+            if len(self.strategies[time_frame]) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
+                new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp), time_frame)
+                optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
+                self.strategies[time_frame][optimized_strategy.name] = optimized_strategy
+            else:
+                # Replace the worst performing strategy for this time frame
+                performances = self.calculate_strategy_performance(time_frame)
+                worst_strategy = min(performances, key=performances.get)
+                new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp), time_frame)
+                optimized_strategy, new_performance = self.strategy_optimizer.optimize_strategy(new_strategy)
+                
+                if new_performance > performances[worst_strategy]:
+                    del self.strategies[time_frame][worst_strategy]
+                    self.strategies[time_frame][optimized_strategy.name] = optimized_strategy
 
-        self.current_strategy = self.strategy_selector.select_strategy(
-            self.strategies,
-            self.get_recent_data(timestamp),
-            self.calculate_strategy_performance()
-        )
-
-    def calculate_strategy_performance(self):
-        return {name: strategy.calculate_performance(self.trades) for name, strategy in self.strategies.items()}
+    def calculate_strategy_performance(self, time_frame: TimeFrame):
+        return {name: strategy.calculate_performance(self.trades) for name, strategy in self.strategies[time_frame].items()}
 
     def calculate_performance_metrics(self):
         returns = pd.Series([pv for _, pv in self.portfolio_values]).pct_change()

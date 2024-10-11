@@ -5,14 +5,15 @@ from sklearn.model_selection import TimeSeriesSplit
 from typing import Dict, Tuple, List, Union
 from strategy import Strategy
 from typing import Generator
+from strategy import TimeFrame
 
 class StrategyOptimizer:
-    def __init__(self, config, market_simulator, strategies: Union[List['Strategy'], Dict[str, 'Strategy']]):
+    def __init__(self, config, market_simulator, strategies: Dict[TimeFrame, Dict[str, Strategy]]):
         self.config = config
         self.market_simulator = market_simulator
-        self.strategies = {s.name: s for s in strategies} if isinstance(strategies, list) else strategies
+        self.strategies = strategies
 
-    def optimize_strategy(self, strategy: 'Strategy') -> Tuple['Strategy', float]:
+    def optimize_strategy(self, strategy: Strategy) -> Tuple[Strategy, float]:
         strategy = self.strategies[strategy_name]
 
         def objective(params: np.ndarray) -> float:
@@ -53,11 +54,14 @@ class StrategyOptimizer:
 
         return strategy, -result.fun
 
-    def optimize_all_strategies(self) -> List[Tuple['Strategy', float]]:
-        optimized_strategies = Parallel(n_jobs=-1)(
-            delayed(self.optimize_strategy)(strategy_name) for strategy_name in self.strategies
-        )
-        return sorted(optimized_strategies, key=lambda x: x[1], reverse=True)
+    def optimize_all_strategies(self) -> Dict[TimeFrame, List[Tuple[Strategy, float]]]:
+        optimized_strategies = {}
+        for time_frame in TimeFrame:
+            optimized_strategies[time_frame] = Parallel(n_jobs=-1)(
+                delayed(self.optimize_strategy)(strategy) for strategy in self.strategies[time_frame].values()
+            )
+            optimized_strategies[time_frame] = sorted(optimized_strategies[time_frame], key=lambda x: x[1], reverse=True)
+        return optimized_strategies
     
     def temporary_optimize(self, strategy: 'Strategy') -> Generator['Strategy', None, None]:
         original_params = strategy.get_parameters()
