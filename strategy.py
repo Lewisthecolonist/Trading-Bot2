@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from config import Config
 import itertools
+from datetime import datetime, timedelta
 
 class TimeFrame(Enum):
     SHORT_TERM = "short_term"
@@ -24,6 +25,8 @@ class Strategy:
             'sharpe_ratio': 0.0,
             'max_drawdown': 0.0,
         }
+        self.protected_until = datetime.now() + timedelta(hours=1)
+
 
     def set_capital(self, capital: float):
         self.capital = capital
