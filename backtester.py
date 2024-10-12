@@ -315,8 +315,15 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
     def update_strategy(self, timestamp):
         for time_frame in TimeFrame:
-            active_strategy = self.strategies[time_frame].get('active')
-            strategies = list(self.strategies[time_frame].values())
+            if self.api_call_manager.can_make_call():
+                active_strategy = self.strategies[time_frame].get('active')
+                strategies = list(self.strategies[time_frame].values())
+                self.api_call_manager.record_call()
+            else:
+                wait_time = self.api_call_manager.time_until_reset()
+                print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
+                time.sleep(wait_time)
+                return self.update_strategy(timestamp)  # Retry after waiting
         
             if len(strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
                 new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp), time_frame)

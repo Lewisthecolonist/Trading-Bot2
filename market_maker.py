@@ -9,6 +9,7 @@ from inventory_manager import InventoryManager
 from compliance import ComplianceChecker
 from strategy_factory import StrategyFactory
 from strategy_selector import StrategySelector
+from strategy_generator import StrategyGenerator
 from typing import Dict, Optional
 from strategy import Strategy, TimeFrame
 from datetime import datetime, time, timedelta
@@ -48,6 +49,7 @@ class MarketMaker:
         self.observer = Observer()
         self.strategy_manager = StrategyManager(config)
         self.logger = logging.getLogger(__name__)
+        self.strategy_generator = StrategyGenerator
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()
@@ -58,7 +60,8 @@ class MarketMaker:
         self.wallet = Wallet(self.exchange)
         await self.wallet.connect()
         self.strategy_factory = StrategyFactory(self, self.config, self.strategy_config_path)
-        await self.strategy_manager.initialize_strategies(self.strategy_factory)
+        market_data = await self.update_market_data()
+        await self.strategy_manager.initialize_strategies(self.strategy_generator, market_data)
         await self.log(f"Connected to {self.exchange.name}")
         await self.log(f"Current balances: {self.wallet.balances}")
 
@@ -270,7 +273,7 @@ class MarketMaker:
         start_time = end_time - timedelta(hours=24)  # Get last 24 hours of data
         
         ohlcv = await self.exchange.fetch_ohlcv(
-            self.config.SYMBOL,
+            self.config.BASE_PARAMS['SYMBOL'],
             timeframe='1h',
             since=int(start_time.timestamp() * 1000),
             limit=24

@@ -41,14 +41,14 @@ class Config:
             'HEDGE_DEACTIVATION_THRESHOLD': 0.45,  # Deactivate hedging when volatility < 45% 
             'MIN_HEDGE_RATIO': 0.1,
             'MAX_HEDGE_RATIO': 0.9,
-            'BACKTEST_DURATION': input('Choose the length of time if you want the backtester to run. if you want it to run indefinitely then simply put 0'),
+            'BACKTEST_DURATION': 0,
             'BACKTEST_UPDATE_INTERVAL': 600,
             # MarketMaker specific parameters
             'MAX_SPREAD': Decimal('0.01'),  # 1% maximum spread
             'MAX_PRICE_DEVIATION': Decimal('0.05'),  # 5% maximum deviation from current price
             'POSITION_RISK_PERCENTAGE': Decimal('0.1'),  # 10% of total portfolio value for each position
             'ORDER_REFRESH_RATE': 60,  # Refresh orders every 60 seconds
-            'MARKET_MAKER_DURATION': input('Choose the length of time if you want the Market Maker to run. if you want it to run indefinitely then simply put 0'),
+            'MARKET_MAKER_DURATION': 0,
             # Error handling
             'NETWORK_ERROR_RETRY_WAIT': 60,  # seconds
             'ERROR_RETRY_INTERVAL': 300,  # seconds

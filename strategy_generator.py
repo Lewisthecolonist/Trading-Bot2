@@ -4,19 +4,29 @@ import os
 import json
 from typing import Dict, List
 from strategy import Strategy, TimeFrame
+import time
+from api_call_manager import APICallManager
 
 class StrategyGenerator:
     def __init__(self, config):
         self.config = config
         genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY'])
         self.model = genai.GenerativeModel('gemini-pro')
+        self.api_call_manager = APICallManager()
 
     def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
         strategies = {}
         for time_frame in TimeFrame:
-            prompt = self._create_prompt(market_data, time_frame)
-            response = self.model.generate_content(prompt)
-            strategies[time_frame] = self.parse_strategies(response.text, time_frame)
+            if self.api_call_manager.can_make_call():
+                prompt = self._create_prompt(market_data, time_frame)
+                response = self.model.generate_content(prompt)
+                self.api_call_manager.record_call()
+                strategies[time_frame] = self.parse_strategies(response.text, time_frame)
+            else:
+                wait_time = self.api_call_manager.time_until_reset()
+                print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
+                time.sleep(wait_time)
+                return self.generate_strategies(market_data)  # Retry after waiting
         return strategies
 
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:

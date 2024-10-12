@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from strategy_selector import StrategySelector
 from datetime import datetime, timedelta
+from strategy_generator import StrategyGenerator
 
 class StrategyManager:
     def __init__(self, config):
@@ -13,6 +14,16 @@ class StrategyManager:
         self.config = config
         self.protection_period = timedelta(hours=1)  # Adjust as needed
 
+    async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
+        strategies = strategy_generator.generate_strategies(market_data)
+        for time_frame, time_frame_strategies in strategies.items():
+            for strategy in time_frame_strategies:
+                self.add_strategy(strategy)
+            if time_frame_strategies:
+                best_strategy = max(time_frame_strategies, key=lambda s: s.performance.get('total_return', 0))
+                self.set_active_strategy(time_frame, best_strategy)
+        
+        await self.log(f"Initialized strategies for all time frames")
 
     def add_strategy(self, strategy: Strategy):
         strategy.protected_until = datetime.now() + self.protection_period
