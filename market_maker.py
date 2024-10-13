@@ -56,12 +56,12 @@ class MarketMaker:
         await loop.run_in_executor(None, self.logger.log, level, message)
 
     async def initialize(self, market_data):
+        await self.strategy_manager.initialize_strategies(self.strategy_generator, market_data)
         await self.exchange.load_markets()
         self.wallet = Wallet(self.exchange)
         await self.wallet.connect()
         self.strategy_factory = StrategyFactory(self, self.config, self.strategy_config_path)
         market_data = await self.update_market_data()
-        await self.strategy_manager.initialize_strategies(self.strategy_generator, market_data)
         await self.log(f"Connected to {self.exchange.name}")
         await self.log(f"Current balances: {self.wallet.balances}")
 

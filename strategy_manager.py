@@ -26,7 +26,7 @@ class StrategyManager:
                 if time_frame_strategies:
                     best_strategy = max(time_frame_strategies, key=lambda s: s.performance.get('total_return', 0))
                     self.set_active_strategy(time_frame, best_strategy)
-        
+    
             await self.log(f"Initialized strategies for all time frames")
         else:
             wait_time = self.api_call_manager.time_until_reset()

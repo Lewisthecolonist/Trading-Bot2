@@ -68,10 +68,10 @@ class TradingSystem:
                 lambda: float(input("Enter market maker duration in hours (0 for indefinite): "))
             )
             self.market_maker_duration *= 3600  # Convert hours to seconds
-        market_data = await self.market_maker.update_market_data()
-        await self.market_maker.initialize(market_data)
         self.is_running = True
         self.start_time = time.time()
+        market_data = await self.market_maker.update_market_data()
+        await self.market_maker.initialize(market_data)
 
     async def main_loop(self):
         tasks = []
@@ -246,3 +246,4 @@ class TradingSystem:
     def calculate_volatility(self, prices):
         returns = pd.Series(prices).pct_change().dropna()
         return float(returns.std() * (252 ** 0.5))  # Annualized volatility
+    
