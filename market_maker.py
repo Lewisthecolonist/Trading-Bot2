@@ -150,9 +150,10 @@ class MarketMaker:
     async def update_market_data(self):
         await self.order_book.update()
         await self.wallet.update_balances()
-        self.inventory_manager.xbt_balance = self.wallet.get_balance('XBT')
+        self.inventory_manager.xbt_balance = self.wallet.get_balance('BTC')
         self.inventory_manager.usdt_balance = self.wallet.get_balance('USDT')
-        return await self.get_recent_data()
+        market_data = await self.get_recent_data()
+        return market_data
 
     def generate_market_event(self, time_frame: TimeFrame, market_data: pd.DataFrame) -> MarketEvent:
         return MarketEvent(datetime.now(), self.config.SYMBOL, time_frame, market_data)

@@ -71,7 +71,6 @@ class TradingSystem:
                 lambda: float(input("Enter market maker duration in hours (0 for indefinite): "))
             )
             self.market_maker_duration *= 3600  # Convert hours to seconds
-
         await self.market_maker.initialize()
 
 
