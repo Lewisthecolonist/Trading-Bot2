@@ -55,9 +55,6 @@ class TradingSystem:
 
     async def start(self):
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
-        self.is_running = True
-        self.start_time = time.time()
-
         if self.mode in [1, 3]:
             self.backtest_duration = await self.loop.run_in_executor(
                 self.executor, 
@@ -71,8 +68,10 @@ class TradingSystem:
                 lambda: float(input("Enter market maker duration in hours (0 for indefinite): "))
             )
             self.market_maker_duration *= 3600  # Convert hours to seconds
-        await self.market_maker.initialize()
-
+        market_data = await self.market_maker.update_market_data()
+        await self.market_maker.initialize(market_data)
+        self.is_running = True
+        self.start_time = time.time()
 
     async def main_loop(self):
         tasks = []

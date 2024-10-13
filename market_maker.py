@@ -55,7 +55,7 @@ class MarketMaker:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.logger.log, level, message)
 
-    async def initialize(self):
+    async def initialize(self, market_data):
         await self.exchange.load_markets()
         self.wallet = Wallet(self.exchange)
         await self.wallet.connect()

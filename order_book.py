@@ -17,12 +17,12 @@ class OrderBook:
 
     async def update(self):
         try:
-            order_book = await self.exchange.fetch_order_book(self.symbol, self.depth)
-            self.bids = SortedDict({Decimal(str(price)): Decimal(str(amount)) for price, amount in order_book['bids']})
-            self.asks = SortedDict({Decimal(str(price)): Decimal(str(amount)) for price, amount in order_book['asks']})
-            self.last_update_time = time.time()
+            order_book = await self.exchange.fetch_order_book(self.symbol)
+            self.bids = [{'price': float(bid[0]), 'amount': float(bid[1])} for bid in order_book['bids']]
+            self.asks = [{'price': float(ask[0]), 'amount': float(ask[1])} for ask in order_book['asks']]
         except Exception as e:
             print(f"Error updating order book: {e}")
+
 
     def get_mid_price(self):
         if self.bids and self.asks:
