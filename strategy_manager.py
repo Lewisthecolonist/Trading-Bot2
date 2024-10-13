@@ -5,6 +5,8 @@ import numpy as np
 from strategy_selector import StrategySelector
 from datetime import datetime, timedelta
 from strategy_generator import StrategyGenerator
+from api_call_manager import APICallManager
+
 
 class StrategyManager:
     def __init__(self, config):
@@ -13,9 +15,10 @@ class StrategyManager:
         self.strategy_selector = StrategySelector(config)
         self.config = config
         self.protection_period = timedelta(hours=1)  # Adjust as needed
+        self.api_call_manager = APICallManager()
 
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
-        strategies = strategy_generator.generate_strategies(self, market_data)
+        strategies = strategy_generator.generate_strategies(market_data)
         for time_frame, time_frame_strategies in strategies.items():
             for strategy in time_frame_strategies:
                 self.add_strategy(strategy)
@@ -24,6 +27,7 @@ class StrategyManager:
                 self.set_active_strategy(time_frame, best_strategy)
     
         await self.log(f"Initialized strategies for all time frames")
+
 
 
     def add_strategy(self, strategy: Strategy):
