@@ -31,6 +31,7 @@ from strategy import TimeFrame
 from strategy import (TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy, 
                       VolatilityStrategy, PatternRecognitionStrategy, StatisticalArbitrageStrategy, 
                       SentimentAnalysisStrategy)
+from api_call_manager import APICallManager
 
 class TransactionCostModel:
     def __init__(self, config):
@@ -218,6 +219,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.market_simulator = MarketSimulator(config, strategy)
         self.risk_manager = RiskManager(config)
         self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, self.strategies)
+        self.api_call_manager = APICallManager()
 
     def run(self):
         while not self.stop_event.is_set():

@@ -26,7 +26,7 @@ class Config:
             'BASE_STOP_LOSS_PCT': 0.05,
             'BASE_TAKE_PROFIT_PCT': 0.1,
             # Strategy parameters
-            'MAX_STRATEGIES': 100,
+            'MAX_STRATEGIES_PER_TIMEFRAME': 50,
             'STRATEGY_UPDATE_INTERVAL': 100,
             'MONTE_CARLO_SIMULATIONS': 1000,
             'GENETIC_ALGORITHM_GENERATIONS': 20,

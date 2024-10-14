@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from strategy_generator import StrategyGenerator
 from api_call_manager import APICallManager
 import asyncio
+import logging
 
 class StrategyManager:
     def __init__(self, config):
@@ -16,10 +17,11 @@ class StrategyManager:
         self.config = config
         self.protection_period = timedelta(hours=1)  # Adjust as needed
         self.api_call_manager = APICallManager()
+        self.logger = logging.getLogger(__name__)
 
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
         if self.api_call_manager.can_make_call():
-            strategies = strategy_generator.generate_strategies(market_data)
+            strategies = await strategy_generator.generate_strategies(market_data)  # Add 'await' here
             for time_frame, time_frame_strategies in strategies.items():
                 for strategy in time_frame_strategies:
                     self.add_strategy(strategy)
@@ -27,12 +29,13 @@ class StrategyManager:
                     best_strategy = max(time_frame_strategies, key=lambda s: s.performance.get('total_return', 0))
                     self.set_active_strategy(time_frame, best_strategy)
     
-            await self.log(f"Initialized strategies for all time frames")
+            self.logger.info(f"Initialized strategies for all time frames")
         else:
             wait_time = self.api_call_manager.time_until_reset()
             print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
             await asyncio.sleep(wait_time)
             return await self.initialize_strategies(strategy_generator, market_data)
+
 
     def add_strategy(self, strategy: Strategy):
         strategy.protected_until = datetime.now() + self.protection_period
