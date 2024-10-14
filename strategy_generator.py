@@ -23,7 +23,7 @@ class StrategyGenerator:
             try:
                 if await self.api_call_manager.can_make_call():
                     prompt = self._create_prompt(market_data, time_frame)
-                    response = await self.model.generate_content(prompt)
+                    response = self.model.generate_content(prompt)  # Remove await here
                     await self.api_call_manager.record_call()
                     strategies[time_frame] = self.parse_strategies(response.text, time_frame)
                     logging.info(f"Generated strategies for {time_frame}")
@@ -36,6 +36,7 @@ class StrategyGenerator:
                 logging.error(f"Error generating strategies for {time_frame}: {str(e)}")
                 strategies[time_frame] = []  # Set empty list for this time frame in case of error
         return strategies
+
 
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"

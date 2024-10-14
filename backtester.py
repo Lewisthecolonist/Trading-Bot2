@@ -328,7 +328,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
                 return self.update_strategy(timestamp)  # Retry after waiting
         
             if len(strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
-                new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp), time_frame)
+                new_strategy = self.strategy_generator.generate_strategies(self.get_recent_data(timestamp), time_frame)
                 optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
                 optimized_strategy.protected_until = timestamp + pd.Timedelta(hours=1)
                 self.strategies[time_frame][optimized_strategy.name] = optimized_strategy

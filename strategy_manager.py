@@ -20,8 +20,8 @@ class StrategyManager:
         self.logger = logging.getLogger(__name__)
 
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
-        if self.api_call_manager.can_make_call():
-            strategies = await strategy_generator.generate_strategies(market_data)  # Add 'await' here
+        if await self.api_call_manager.can_make_call():
+            strategies = await strategy_generator.generate_strategies(market_data)
             for time_frame, time_frame_strategies in strategies.items():
                 for strategy in time_frame_strategies:
                     self.add_strategy(strategy)
@@ -31,7 +31,7 @@ class StrategyManager:
     
             self.logger.info(f"Initialized strategies for all time frames")
         else:
-            wait_time = self.api_call_manager.time_until_reset()
+            wait_time = await self.api_call_manager.time_until_reset()
             print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
             await asyncio.sleep(wait_time)
             return await self.initialize_strategies(strategy_generator, market_data)
