@@ -49,7 +49,7 @@ class MarketMaker:
         self.observer = Observer()
         self.strategy_manager = StrategyManager(config)
         self.logger = logging.getLogger(__name__)
-        self.strategy_generator = StrategyGenerator
+        self.strategy_generator = StrategyGenerator(config)
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()

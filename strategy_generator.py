@@ -6,6 +6,8 @@ from typing import Dict, List
 from strategy import Strategy, TimeFrame
 import time
 from api_call_manager import APICallManager
+import logging
+import asyncio
 
 class StrategyGenerator:
     def __init__(self, config):
@@ -14,19 +16,25 @@ class StrategyGenerator:
         self.model = genai.GenerativeModel('gemini-pro')
         self.api_call_manager = APICallManager()
 
-    def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
+
+    async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
         strategies = {}
         for time_frame in TimeFrame:
-            if self.api_call_manager.can_make_call():
-                prompt = self._create_prompt(market_data, time_frame)
-                response = self.model.generate_content(prompt)
-                self.api_call_manager.record_call()
-                strategies[time_frame] = self.parse_strategies(response.text, time_frame)
-            else:
-                wait_time = self.api_call_manager.time_until_reset()
-                print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
-                time.sleep(wait_time)
-                return self.generate_strategies(market_data)  # Retry after waiting
+            try:
+                if await self.api_call_manager.can_make_call():
+                    prompt = self._create_prompt(market_data, time_frame)
+                    response = await self.model.generate_content(prompt)
+                    await self.api_call_manager.record_call()
+                    strategies[time_frame] = self.parse_strategies(response.text, time_frame)
+                    logging.info(f"Generated strategies for {time_frame}")
+                else:
+                    wait_time = await self.api_call_manager.time_until_reset()
+                    logging.warning(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
+                    await asyncio.sleep(wait_time)
+                    return await self.generate_strategies(market_data)  # Retry after waiting
+            except Exception as e:
+                logging.error(f"Error generating strategies for {time_frame}: {str(e)}")
+                strategies[time_frame] = []  # Set empty list for this time frame in case of error
         return strategies
 
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
