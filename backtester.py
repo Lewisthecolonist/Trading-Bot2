@@ -318,38 +318,15 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
     def update_strategy(self, timestamp):
         for time_frame in TimeFrame:
             if self.api_call_manager.can_make_call():
-                active_strategy = self.strategies[time_frame].get('active')
-                strategies = list(self.strategies[time_frame].values())
+                self.strategy_manager.update_strategies(self.get_recent_data(timestamp), time_frame)
                 self.api_call_manager.record_call()
             else:
                 wait_time = self.api_call_manager.time_until_reset()
                 print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
                 time.sleep(wait_time)
                 return self.update_strategy(timestamp)  # Retry after waiting
-        
-            if len(strategies) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
-                new_strategy = self.strategy_generator.generate_strategies(self.get_recent_data(timestamp), time_frame)
-                optimized_strategy, _ = self.strategy_optimizer.optimize_strategy(new_strategy)
-                optimized_strategy.protected_until = timestamp + pd.Timedelta(hours=1)
-                self.strategies[time_frame][optimized_strategy.name] = optimized_strategy
-            else:
-                performances = self.calculate_strategy_performance(time_frame)
-                replaceable_strategies = [s for s in strategies if s != active_strategy and timestamp > s.protected_until]
-            
-                if replaceable_strategies:
-                    worst_strategy = min(replaceable_strategies, key=lambda s: performances[s.name])
-                    new_strategy = self.strategy_generator.generate_strategy(self.get_recent_data(timestamp), time_frame)
-                    optimized_strategy, new_performance = self.strategy_optimizer.optimize_strategy(new_strategy)
-                
-                    if new_performance > performances[worst_strategy.name]:
-                        del self.strategies[time_frame][worst_strategy.name]
-                        optimized_strategy.protected_until = timestamp + pd.Timedelta(hours=1)
-                        self.strategies[time_frame][optimized_strategy.name] = optimized_strategy
 
-            performances = self.calculate_strategy_performance(time_frame)
-            best_strategy = max(self.strategies[time_frame].values(), key=lambda s: performances[s.name])
-            self.strategies[time_frame]['active'] = best_strategy
-
+        self.current_strategy = self.strategy_manager.select_best_strategy()
 
     def calculate_strategy_performance(self, time_frame: TimeFrame):
         return {name: strategy.calculate_performance(self.trades) for name, strategy in self.strategies[time_frame].items()}

@@ -11,7 +11,7 @@ import logging
 
 class StrategyManager:
     def __init__(self, config):
-        self.strategies = {tf: [] for tf in TimeFrame}
+        self.strategies = {tf: {} for tf in TimeFrame}  # Change this line
         self.active_strategies = {}
         self.strategy_selector = StrategySelector(config)
         self.config = config
