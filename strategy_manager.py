@@ -54,6 +54,36 @@ class StrategyManager:
                 if current_time > strategy.protected_until:
                     strategy.protected_until = None
 
+    async def update_strategies(self, market_data: pd.DataFrame, time_frame: TimeFrame, strategy_generator: StrategyGenerator):
+        if await self.api_call_manager.can_make_call():
+            # Update existing strategies
+            for strategy in self.get_strategies_by_timeframe(time_frame):
+                self.update_strategy_performance(strategy, strategy.calculate_performance(market_data))
+
+            # Generate new strategies if needed
+            if len(self.get_strategies_by_timeframe(time_frame)) < self.config.MAX_STRATEGIES_PER_TIMEFRAME:
+                new_strategies = await strategy_generator.generate_strategies(market_data, time_frame)
+                for new_strategy in new_strategies:
+                    self.add_strategy(new_strategy)
+
+            # Remove underperforming strategies
+            self.update_strategy_protection()
+            for strategy in self.get_strategies_by_timeframe(time_frame):
+                self.remove_strategy(strategy)
+
+            # Update strategy weights
+            self.update_strategy_weights()
+
+            # Select the best strategy for the time frame
+            self.select_best_strategies(market_data, self.config.ASSET_POSITION_VALUE)
+
+            await self.api_call_manager.record_call()
+        else:
+            wait_time = await self.api_call_manager.time_until_reset()
+            self.logger.warning(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
+            await asyncio.sleep(wait_time)
+            return await self.update_strategies(market_data, time_frame, strategy_generator)
+
     def set_active_strategy(self, time_frame: TimeFrame, strategy: Strategy):
         if strategy in self.strategies[time_frame]:
             self.active_strategies[time_frame] = strategy

@@ -320,7 +320,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
     def update_strategy(self, timestamp):
         for time_frame in TimeFrame:
             if self.api_call_manager.can_make_call():
-                self.strategy_manager.update_strategies(self.get_recent_data(timestamp), time_frame)
+                self.strategy_manager.update_strategies(self.get_recent_data(timestamp), time_frame, self.strategy_generator)
                 self.api_call_manager.record_call()
             else:
                 wait_time = self.api_call_manager.time_until_reset()
@@ -328,7 +328,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
                 time.sleep(wait_time)
                 return self.update_strategy(timestamp)  # Retry after waiting
 
-        self.current_strategy = self.strategy_manager.select_best_strategy()
+        self.current_strategy = self.strategy_manager.select_best_strategies()
 
     def calculate_strategy_performance(self, time_frame: TimeFrame):
         return {name: strategy.calculate_performance(self.trades) for name, strategy in self.strategies[time_frame].items()}
