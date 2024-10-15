@@ -58,27 +58,32 @@ class StrategyGenerator:
 
         try:
             strategies_data = json.loads(strategies_text)
-        except json.JSONDecodeError:
-            print(f"Error parsing JSON response for {time_frame.value}. Attempting to extract strategy information.")
+            if not isinstance(strategies_data, list):
+                raise ValueError("Expected a list of strategies")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing JSON response for {time_frame.value}: {str(e)}")
+            print("Attempting to extract strategy information from raw text.")
             strategies_data = self.extract_strategy_info(strategies_text)
 
         for strategy_data in strategies_data:
-            name = strategy_data.get('name', '')
-            description = strategy_data.get('description', '')
-            parameters = strategy_data.get('parameters', {})
-            favored_patterns = strategy_data.get('favored_patterns', [])
+            try:
+                name = strategy_data['name']
+                description = strategy_data['description']
+                parameters = strategy_data['parameters']
+                favored_patterns = strategy_data['favored_patterns']
 
-            # Ensure required parameters are present
-            parameters['INITIAL_CAPITAL'] = parameters.get('INITIAL_CAPITAL', 10000)
-            parameters['MAX_POSITION_SIZE'] = parameters.get('MAX_POSITION_SIZE', 0.1)
-            parameters['TRADING_FEE'] = parameters.get('TRADING_FEE', 0.001)
+                # Ensure required parameters are present
+                parameters['INITIAL_CAPITAL'] = parameters.get('INITIAL_CAPITAL', 10000)
+                parameters['MAX_POSITION_SIZE'] = parameters.get('MAX_POSITION_SIZE', 0.1)
+                parameters['TRADING_FEE'] = parameters.get('TRADING_FEE', 0.001)
 
-            # Add weight parameters for each favored pattern
-            for pattern in favored_patterns:
-                parameters[f'{pattern}_weight'] = 1.0 / len(favored_patterns)
+                # Add weight parameters for each favored pattern
+                for pattern in favored_patterns:
+                    parameters[f'{pattern}_weight'] = 1.0 / len(favored_patterns)
 
-            if name and description and parameters and favored_patterns:
                 generated_strategies.append(Strategy(name, description, parameters, favored_patterns, time_frame))
+            except KeyError as e:
+                print(f"Error processing strategy data: Missing key {e}")
 
         if not generated_strategies:
             print(f"No valid strategies found for {time_frame.value}. Falling back to default strategy.")

@@ -14,6 +14,7 @@ import datetime
 from decimal import Decimal
 from datetime import timedelta
 from queue import Queue
+from api_call_manager import APICallManager
 
 class TradingSystem:
     def __init__(self, config, historical_data):
@@ -37,6 +38,7 @@ class TradingSystem:
         self.start_time = None
         self.backtest_duration = float(config.BASE_PARAMS['BACKTEST_DURATION'])
         self.market_maker_duration = float(config.BASE_PARAMS['MARKET_MAKER_DURATION'])
+        self.api_call_manager = APICallManager()
 
     def get_user_choice(self):
         while True:
@@ -90,6 +92,7 @@ class TradingSystem:
             self.results_queue.put(self.backtest_results)
             await self.process_backtest_results(self.backtest_results)
             await asyncio.sleep(self.config.BASE_PARAMS['BACKTEST_UPDATE_INTERVAL'])
+        await self.stop()
         print("Backtester completed")
 
     async def run_market_maker(self):
@@ -102,6 +105,7 @@ class TradingSystem:
                 await asyncio.sleep(self.config.MARKET_MAKER_UPDATE_INTERVAL)
             except Exception as e:
                 print(f"Error in market maker: {e}")
+        await self.stop()
         print("Market maker completed")
 
     async def process_results_queue(self):
@@ -119,6 +123,7 @@ class TradingSystem:
         self.is_running = False
         await self.wallet.close()
         self.executor.shutdown(wait=True)
+        self.api_call_manager.save_state()
 
     async def process_backtest_results(self, results):
         if self.mode in [1, 3]:
