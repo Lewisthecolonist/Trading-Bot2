@@ -54,14 +54,13 @@ class StrategyGenerator:
 
     def parse_strategies(self, strategies_text: str, time_frame: TimeFrame) -> List[Strategy]:
         generated_strategies = []
+        print(f"Raw response for {time_frame.value}:\n{strategies_text}")  # Debug print
+
         try:
             strategies_data = json.loads(strategies_text)
         except json.JSONDecodeError:
-            print(f"Error parsing JSON response for {time_frame.value}. Falling back to default strategy.")
-            return [Strategy("Default Strategy", "Simple moving average crossover", 
-                             {"INITIAL_CAPITAL": 10000, "MAX_POSITION_SIZE": 0.1, "TRADING_FEE": 0.001, 
-                              "short_ma_window": 10, "long_ma_window": 50},
-                             ['trend_following'], time_frame)]
+            print(f"Error parsing JSON response for {time_frame.value}. Attempting to extract strategy information.")
+            strategies_data = self.extract_strategy_info(strategies_text)
 
         for strategy_data in strategies_data:
             name = strategy_data.get('name', '')
@@ -81,7 +80,36 @@ class StrategyGenerator:
             if name and description and parameters and favored_patterns:
                 generated_strategies.append(Strategy(name, description, parameters, favored_patterns, time_frame))
 
+        if not generated_strategies:
+            print(f"No valid strategies found for {time_frame.value}. Falling back to default strategy.")
+            return [Strategy("Default Strategy", "Simple moving average crossover", 
+                         {"INITIAL_CAPITAL": 10000, "MAX_POSITION_SIZE": 0.1, "TRADING_FEE": 0.001, 
+                          "short_ma_window": 10, "long_ma_window": 50},
+                         ['trend_following'], time_frame)]
+
         return generated_strategies
+
+    def extract_strategy_info(self, text: str) -> List[Dict]:
+        strategies = []
+        current_strategy = {}
+        for line in text.split('\n'):
+            if line.startswith('Name:'):
+                if current_strategy:
+                    strategies.append(current_strategy)
+                current_strategy = {'name': line.split(':', 1)[1].strip()}
+            elif line.startswith('Description:'):
+                current_strategy['description'] = line.split(':', 1)[1].strip()
+            elif line.startswith('Parameters:'):
+                current_strategy['parameters'] = {}
+            elif ':' in line and 'parameters' in current_strategy:
+                key, value = line.split(':', 1)
+                current_strategy['parameters'][key.strip()] = value.strip()
+            elif line.startswith('Favored patterns:'):
+                current_strategy['favored_patterns'] = [p.strip() for p in line.split(':', 1)[1].split(',')]
+        if current_strategy:
+            strategies.append(current_strategy)
+        return strategies
+
 
     def calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         delta = prices.diff()
