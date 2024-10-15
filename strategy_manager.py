@@ -8,6 +8,7 @@ from strategy_generator import StrategyGenerator
 from api_call_manager import APICallManager
 import asyncio
 import logging
+import event
 
 class StrategyManager:
     def __init__(self, config):
@@ -23,8 +24,8 @@ class StrategyManager:
         if await self.api_call_manager.can_make_call():
             strategies = await strategy_generator.generate_strategies(market_data)
             for time_frame, time_frame_strategies in strategies.items():
-                for strategy in time_frame_strategies:
-                    self.add_strategy(strategy)
+                self.strategies = {tf: {} for tf in TimeFrame}  # Now includes all TimeFrames
+                self.add_strategy(strategies)
                 if time_frame_strategies:
                     best_strategy = max(time_frame_strategies, key=lambda s: s.performance.get('total_return', 0))
                     self.set_active_strategy(time_frame, best_strategy)
@@ -38,7 +39,7 @@ class StrategyManager:
 
 
     def add_strategy(self, strategy: Strategy):
-        strategy.protected_until = datetime.now() + self.protection_period
+        strategy.protected_until = datetime.now() + Strategy.protection_period
         self.strategies[strategy.time_frame][strategy.name] = strategy
 
     def remove_strategy(self, strategy: Strategy):
@@ -83,6 +84,8 @@ class StrategyManager:
             self.logger.warning(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
             await asyncio.sleep(wait_time)
             return await self.update_strategies(market_data, time_frame, strategy_generator)
+        
+        await self.update_strategy(event.timestamp)
 
     def set_active_strategy(self, time_frame: TimeFrame, strategy: Strategy):
         if strategy in self.strategies[time_frame]:
@@ -146,7 +149,11 @@ class StrategyManager:
     def select_best_strategies(self, market_data: pd.DataFrame, asset_position_value: float):
         all_strategies = {tf: self.get_strategies_by_timeframe(tf) for tf in TimeFrame}
         strategy_performance = {s.name: s.performance for s in self.get_all_strategies()}
-        
+
+        # Evaluate fitness of each strategy
+        for strategy in strategy_performance.keys():
+            strategy_performance[strategy] = strategy.evaluate_fitness(market_data, asset_position_value)  # From new method
+
         suitable_strategies = self.strategy_selector.select_strategies(
             all_strategies,
             strategy_performance,

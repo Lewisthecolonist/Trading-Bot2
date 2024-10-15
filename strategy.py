@@ -25,7 +25,7 @@ class Strategy:
             'sharpe_ratio': 0.0,
             'max_drawdown': 0.0,
         }
-        self.protected_until = datetime.now() + timedelta(hours=1)
+        self.protection_period = None  # Add this line
 
 
     def set_capital(self, capital: float):

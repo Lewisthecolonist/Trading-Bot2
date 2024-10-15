@@ -21,12 +21,10 @@ class StrategyGenerator:
         strategies = {}
         try:
             if await self.api_call_manager.can_make_call():
-                prompt = self._create_prompt(market_data)
-                response = self.model.generate_content(prompt)
-                await self.api_call_manager.record_call()
-                all_strategies = self.parse_strategies(response.text)
                 for time_frame in TimeFrame:
-                    strategies[time_frame] = all_strategies.get(time_frame, [])
+                    prompt = self._create_prompt(market_data, time_frame)
+                    response = self.model.generate_content(prompt)
+                    strategies[time_frame] = self.parse_strategies(response.text, time_frame)
                 logging.info("Generated strategies for all time frames")
             else:
                 wait_time = await self.api_call_manager.time_until_reset()
@@ -38,7 +36,6 @@ class StrategyGenerator:
             for time_frame in TimeFrame:
                 strategies[time_frame] = []
         return strategies
-
 
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"
@@ -58,7 +55,7 @@ class StrategyGenerator:
     def parse_strategies(self, strategies_text: str, time_frame: TimeFrame) -> List[Strategy]:
         # Clean the response
         cleaned_text = strategies_text.strip().replace('```json', '').replace('```', '')
-    
+        print(cleaned_text)
         try:
             strategies_data = json.loads(cleaned_text)
             if 'trading_strategies' in strategies_data:
@@ -76,7 +73,7 @@ class StrategyGenerator:
                 name = strategy_data['name']
                 description = strategy_data['description']
                 parameters = strategy_data['parameters']
-                favored_patterns = strategy_data['favored_patterns']
+                favored_patterns = strategy_data['favored_patterns' or 'patterns']
 
                 # Ensure required parameters are present
                 parameters['INITIAL_CAPITAL'] = parameters.get('INITIAL_CAPITAL', 10000)
@@ -122,3 +119,72 @@ class StrategyGenerator:
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
         rs = gain / loss
         return 100 - (100 / (1 + rs))
+    
+    def create_default_strategy(self, time_frame):
+        # Define different strategies for each time frame
+        if time_frame == TimeFrame.SHORT_TERM:
+            # Short-term strategy (e.g., day trading or swing trading)
+            return Strategy(
+                strategy_name="Short-Term Strategy",
+                description="Strategy for short-term trading, focusing on quick gains",
+                parameters={
+                    "indicator": "RSI",
+                    "threshold": 70,  # Sell when RSI is above 70
+                    "stop_loss": 0.02  # Stop-loss at 2% below purchase price
+                },
+                favored_patterns=["Bullish Engulfing", "Bearish Reversal"],
+                time_frame=TimeFrame.SHORT_TERM
+            )
+
+        elif time_frame == TimeFrame.MID_TERM:
+            # Mid-term strategy (e.g., holding for weeks or months)
+            return Strategy(
+                strategy_name="Mid-Term Strategy",
+                description="Strategy for mid-term trading, holding for weeks to months",
+                parameters={
+                    "indicator": "MACD",
+                    "signal_line": 9,  # Signal line for MACD crossover
+                    "take_profit": 0.10,  # Take profit at 10% gain
+                    "stop_loss": 0.05  # Stop-loss at 5% below purchase price
+                },
+                favored_patterns=["Head and Shoulders", "Double Bottom"],
+                time_frame=TimeFrame.MID_TERM
+            )
+
+        elif time_frame == TimeFrame.LONG_TERM:
+            # Long-term strategy (e.g., buy-and-hold for years)
+            return Strategy(
+                strategy_name="Long-Term Strategy",
+                description="Strategy for long-term investing, holding for years",
+                parameters={
+                    "indicator": "EMA",
+                    "periods": [50, 200],  # Use 50-day and 200-day EMAs
+                    "rebalancing_period": "Annually"  # Rebalance once a year
+                },
+                favored_patterns=["Golden Cross", "Ascending Triangle"],
+                time_frame=TimeFrame.LONG_TERM
+            )
+
+        elif time_frame == TimeFrame.SEASONAL_TERM:
+            # Seasonal-term strategy (e.g., based on seasonal trends)
+            return Strategy(
+                strategy_name="Seasonal-Term Strategy",
+                description="Strategy based on seasonal trends, adjusted quarterly",
+                parameters={
+                    "indicator": "Seasonal Index",
+                    "adjustment_period": "Quarterly",
+                    "sectors": ["Technology", "Retail"]  # Favor sectors with seasonal growth
+                },
+                favored_patterns=["Seasonal Breakout", "Support Bounce"],
+                time_frame=TimeFrame.SEASONAL_TERM
+            )
+
+        else:
+            # Fallback default strategy if time frame doesn't match
+            return Strategy(
+                strategy_name="Default Strategy",
+                description="Simple buy-and-hold strategy",
+                parameters={},
+                favored_patterns=[],
+                time_frame=TimeFrame.SHORT_TERM  # Default to short-term
+            )
