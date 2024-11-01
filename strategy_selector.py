@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from typing import Dict, List
 from strategy import Strategy, TimeFrame
-from prophet import Prophet
+import prophet as Prophet
 from functools import lru_cache
 
 class StrategySelector:
@@ -11,10 +11,10 @@ class StrategySelector:
         self.config = config
         genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY'])
         self.model = genai.GenerativeModel('gemini-pro')
-        self.prophet_model = Prophet(daily_seasonality=True)
+        self.prophet_model = Prophet.Prophet(daily_seasonality=True)
         self.prediction_horizon = {
-            TimeFrame.SHORT_TERM: 7,
-            TimeFrame.MID_TERM: 30,
+            TimeFrame.SHORT_TERM: 1,
+            TimeFrame.MID_TERM: 7,
             TimeFrame.LONG_TERM: 90,
             TimeFrame.SEASONAL: 365
         }

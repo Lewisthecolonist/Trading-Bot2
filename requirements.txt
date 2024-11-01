@@ -1,0 +1,10 @@
+python-dateutil>=2.8.2
+pytz>=2023.3
+pandas>=1.5.3
+numpy>=1.24.3
+aiohttp>=3.8.5
+json5>=0.9.14
+ccxt>=4.0.0
+python-binance>=1.0.17
+ta>=0.10.2
+matplotlib>=3.7.1

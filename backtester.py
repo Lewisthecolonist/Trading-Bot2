@@ -222,6 +222,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, self.strategies)
         self.api_call_manager = APICallManager()
         self.strategy_manager = StrategyManager(config)
+        self.current_strategy = None  # Initialize current_strategy as None
 
     def run(self):
         while not self.stop_event.is_set():
@@ -252,24 +253,29 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         except Exception as e:
             print(f"Error executing trade: {e}")
 
-    def process_events(self):
+    async def process_events(self):
         while self.events:
             event = self.events.popleft()
             if event.type == EventType.MARKET:
-                self.handle_market_event(event)
+                await self.handle_market_event(event)
             elif event.type == EventType.SIGNAL:
-                self.handle_signal_event(event)
+                await self.handle_signal_event(event)
             elif event.type == EventType.ORDER:
-                self.handle_order_event(event)
+                await self.handle_order_event(event)
             elif event.type == EventType.FILL:
-                self.handle_fill_event(event)
+                await self.handle_fill_event(event)
 
-    def handle_market_event(self, event: MarketEvent):
-        self.update_strategy(event.timestamp)
-        signal = self.current_strategy.generate_signal(self.get_recent_data(event.timestamp))
-        if signal != 0:
-            self.events.append(SignalEvent(event.timestamp, self.config.SYMBOL, signal))
+    async def handle_market_event(self, event: MarketEvent):
+        # Update strategy using strategy manager
+        recent_data = self.get_recent_data(event.timestamp)
+        for time_frame in TimeFrame:
+            self.current_strategy = await self.strategy_manager.update_strategies(recent_data, time_frame, self.strategy_generator)
 
+        if self.current_strategy:  # Check if current_strategy exists
+            signal = await self.current_strategy.generate_signal(self.get_recent_data(event.timestamp))
+            if signal != 0:
+                self.events.append(SignalEvent(event.timestamp, self.config.SYMBOL, signal))
+    
     def handle_signal_event(self, event: SignalEvent):
         order_type = 'MARKET'
         quantity, stop_loss, take_profit = self.risk_manager.apply_risk_management(
@@ -396,7 +402,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
     def reset(self):
         self.current_position = 0
-        self.cash = self.config.INITIAL_CAPITAL
+        self.cash = self.config.BASE_PARAMS['INITIAL_CAPITAL']
         self.portfolio_value = self.cash
         self.trades = []
         self.portfolio_values = []

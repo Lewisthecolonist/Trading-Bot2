@@ -21,15 +21,11 @@ class StrategyFactory:
             with open(self.config_file_path, 'r') as f:
                 content = f.read().strip()
                 if content:
-                    self.strategies = json.loads(content)
-                else:
-                    self.strategies = {}
-        except FileNotFoundError:
-            self.strategies = {}
-        except json.JSONDecodeError:
-            print(f"Error decoding JSON from {self.config_file_path}. Creating a new empty configuration.")
-            self.strategies = {}
-            self.save_strategy_config()
+                    return json.loads(content)
+                return {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(f"Error loading strategy config from {self.config_file_path}. Creating new empty configuration.")
+            return {}
 
 
     def save_strategy_config(self):
@@ -65,12 +61,12 @@ class StrategyFactory:
         while True:
             await asyncio.sleep(60)  # Check every minute
             current_strategies = set(self.strategies.keys())
-            config_strategies = set(self.load_strategy_config().keys())
+            loaded_config = self.load_strategy_config()
+            config_strategies = set(loaded_config.keys()) if loaded_config else set()
 
             if current_strategies != config_strategies:
                 self.save_strategy_config()
                 print("Strategy configuration updated.")
-
     def delete_strategy(self, strategy_name: str):
         if strategy_name in self.strategies:
             del self.strategies[strategy_name]

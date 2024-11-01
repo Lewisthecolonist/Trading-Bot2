@@ -4,7 +4,6 @@ import threading
 import time
 from decimal import Decimal
 import google.generativeai as genai
-from dotenv import load_dotenv
 
 class Config:
     def __init__(self):
