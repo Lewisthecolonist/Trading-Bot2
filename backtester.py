@@ -33,6 +33,8 @@ from strategy import (TrendFollowingStrategy, MeanReversionStrategy, MomentumStr
                       SentimentAnalysisStrategy)
 from api_call_manager import APICallManager
 from strategy_manager import StrategyManager
+import tracemalloc
+tracemalloc.start()
 
 class TransactionCostModel:
     def __init__(self, config):
@@ -223,15 +225,14 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.api_call_manager = APICallManager()
         self.strategy_manager = StrategyManager(config)
         self.current_strategy = None  # Initialize current_strategy as None
-
-    def run(self):
+    async def run(self):
         while not self.stop_event.is_set():
             for timestamp, row in self.historical_data.iterrows():
                 if self.stop_event.is_set():
                     break
                 market_event = MarketEvent(timestamp, row.to_dict())
                 self.events.append(market_event)
-                self.process_events()
+                await self.process_events()  # Add await here
                 self.update_portfolio_value(timestamp)
                 self.portfolio_values.append((timestamp, self.portfolio_value))
 
@@ -240,7 +241,6 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
 
         self.calculate_performance_metrics()
         self.result_queue.put(self.get_results())
-
     def stop(self):
         self.stop_event.set()
     
