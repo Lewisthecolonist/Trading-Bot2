@@ -75,7 +75,7 @@ class StrategyManager:
                 for strategy in self.get_strategies_by_timeframe(time_frame):
                     self.update_strategy_performance(strategy, strategy.calculate_performance(market_data))
 
-                if len(self.get_strategies_by_timeframe(time_frame)) < self.config.MAX_STRATEGIES_PER_TIMEFRAME:
+                if len(self.get_strategies_by_timeframe(time_frame)) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
                     new_strategies = await strategy_generator.generate_strategies(market_data, time_frame)
                     for new_strategy in new_strategies:
                         self.add_strategy(new_strategy)

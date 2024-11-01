@@ -129,6 +129,10 @@ class TradingSystem:
         if self.mode in [1, 3]:
             print("Processing backtest results...")
         
+            # Ensure results is awaited if it's a coroutine
+            if asyncio.iscoroutine(results):
+                results = await results
+        
             # 1. Calculate and print performance metrics
             total_return = results['total_return']
             sharpe_ratio = results['sharpe_ratio']
@@ -161,15 +165,14 @@ class TradingSystem:
             # 6. Update market maker strategy if in mode 3
             if self.mode == 3:
                 print("Updating market maker strategy based on backtest results...")
-                self.market_maker.update_strategy(results)
+                await self.market_maker.update_strategy(results)
             
                 # Optionally, you could update specific parameters of the market maker
                 # based on the backtest results. For example:
                 if total_return > 0.05:  # If total return is greater than 5%
-                    self.market_maker.increase_risk_tolerance()
+                    await self.market_maker.increase_risk_tolerance()
                 elif total_return < -0.02:  # If total return is less than -2%
-                    self.market_maker.decrease_risk_tolerance()
-
+                    await self.market_maker.decrease_risk_tolerance()
     def plot_equity_curve(self, equity_curve):
         import matplotlib.pyplot as plt
         plt.figure(figsize=(12, 6))
