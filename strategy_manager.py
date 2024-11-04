@@ -43,16 +43,22 @@ class StrategyManager:
             print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
             await asyncio.sleep(wait_time)
             return await self.initialize_strategies(strategy_generator, market_data)
-
     def add_strategy(self, strategy: Strategy):
         try:
             if not isinstance(strategy, Strategy):
-                raise TypeError("Object provided is not a valid Strategy instance")
+                if isinstance(strategy, dict):
+                    strategy = Strategy(
+                        name=strategy.get('name', 'unnamed_strategy'),
+                        time_frame=strategy.get('time_frame'),
+                        parameters=strategy.get('parameters', {}),
+                        performance=strategy.get('performance', {'total_return': 0})
+                    )
+                else:
+                    raise TypeError("Object provided is not a valid Strategy instance or dictionary")
             strategy.protected_until = datetime.now() + self.protection_period
             self.strategies[strategy.time_frame][strategy.name] = strategy
         except Exception as e:
             self.logger.error(f"Error adding strategy: {str(e)}")
-
     def remove_strategy(self, strategy: Strategy):
         try:
             if (strategy not in self.active_strategies.values() and 
@@ -76,7 +82,7 @@ class StrategyManager:
                     self.update_strategy_performance(strategy, strategy.calculate_performance(market_data))
 
                 if len(self.get_strategies_by_timeframe(time_frame)) < self.config.BASE_PARAMS['MAX_STRATEGIES_PER_TIMEFRAME']:
-                    new_strategies = await strategy_generator.generate_strategies(market_data, time_frame)
+                    new_strategies = await strategy_generator.generate_strategies(market_data)
                     for new_strategy in new_strategies:
                         self.add_strategy(new_strategy)
 
@@ -161,24 +167,40 @@ class StrategyManager:
             self.logger.error(f"Error calculating strategy weight: {str(e)}")
             return 0.0
 
-    def select_best_strategies(self, market_data: pd.DataFrame, asset_position_value: float):
+    def select_best_strategies(self, market_data: pd.DataFrame, asset_position_value: float = None):
         try:
+            current_price = market_data['close'].iloc[-1]
+        
+            # Use adaptive parameters for stop loss and take profit
+            stop_loss_pct = self.config.ADAPTIVE_PARAMS['STOP_LOSS_PCT']
+            take_profit_pct = self.config.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT']
+        
+            stop_loss_price = current_price * (1 - stop_loss_pct)
+            take_profit_price = current_price * (1 + take_profit_pct)
+        
+            position_size = self.risk_manager.calculate_position_size(
+                self.config.get_portfolio_value(),
+                current_price,
+                stop_loss_price
+            )
+        
+            # Rest of the strategy selection logic remains the same
             all_strategies = {tf: self.get_strategies_by_timeframe(tf) for tf in TimeFrame}
             strategy_performance = {s.name: s.performance for s in self.get_all_strategies()}
 
             for strategy in self.get_all_strategies():
-                strategy_performance[strategy.name] = strategy.calculate_performance([], asset_position_value)
+                strategy_performance[strategy.name] = strategy.calculate_performance(market_data, position_size)
 
             suitable_strategies = self.strategy_selector.select_strategies(
                 all_strategies,
                 strategy_performance,
                 market_data,
-                asset_position_value
+                position_size
             )
 
             for time_frame in TimeFrame:
                 weighted_strategies = [(strategy, self.calculate_strategy_weight(strategy)) 
-                                    for strategy in suitable_strategies[time_frame]]
+                                    for strategy in suitable_strategies.get(time_frame, [])]
                 sorted_strategies = sorted(weighted_strategies, key=lambda x: x[1], reverse=True)
                 if sorted_strategies:
                     selected_strategy = sorted_strategies[0][0]

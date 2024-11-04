@@ -40,61 +40,34 @@ class StrategyGenerator:
         prompt += f"50-day moving average: {market_data['close'].rolling(50).mean().iloc[-1]}\n"
         prompt += f"14-day RSI: {self.calculate_rsi(market_data['close'], 14).iloc[-1]}\n"
         prompt += (
-            "Generate exactly 2 trading strategies for the {time_frame.value} time frame. "
-            "Ensure the response is valid JSON with this structure:\n"
+            f"Generate exactly 2 trading strategies for the {time_frame.value} time frame.\n"
+            "Return a JSON array with this exact structure:\n"
             '[{"name": "strategy_name", "description": "strategy_description", '
             '"parameters": {"param1": "value1", "param2": "value2"}, '
             '"favored_patterns": ["pattern1", "pattern2"]}]'
         )
         return prompt
 
-    def parse_strategies(self, strategies_text: str, time_frame: TimeFrame) -> List[Strategy]:
-        # Clean the response
-        cleaned_text = strategies_text.strip().replace('```json', '').replace('```', '')
-        
-        if not cleaned_text:
-            logging.error(f"Received empty response for {time_frame.value}")
-            return [self.create_default_strategy(time_frame)]  # Fallback
-        
+    def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
         try:
-            # Try to parse the cleaned JSON text
-            strategies_data = json.loads(cleaned_text)
-            
-            # Support multiple possible key structures
-            strategies_data = strategies_data.get('trading_strategies', strategies_data.get('strategies', []))
-
-            # Ensure it's a list of strategies
-            if not isinstance(strategies_data, list):
-                logging.error(f"Unexpected format for {time_frame.value} strategies. Falling back to default.")
-                return [self.create_default_strategy(time_frame)]
-            
-        except json.JSONDecodeError as e:
-            # Log the error and try to extract strategies from raw text
-            logging.error(f"Error parsing JSON response for {time_frame.value}: {str(e)}")
-            logging.warning("Attempting to extract strategy information from raw text.")
-            strategies_data = self.extract_strategy_info(cleaned_text)
-
-        generated_strategies = []
-        for strategy_data in strategies_data:
-            try:
-                generated_strategies.append(
-                    Strategy(
-                        strategy_name=strategy_data.get('name', 'Unknown Strategy'),
-                        description=strategy_data.get('description', ''),
-                        parameters=strategy_data.get('parameters', {}),
-                        favored_patterns=strategy_data.get('favored_patterns', []),
-                        time_frame=time_frame
-                    )
+            strategy_data = json.loads(response_text)
+            strategies = []
+            for data in strategy_data:
+                strategy = Strategy(
+                    strategy_name=data['name'],
+                    description=data['description'],
+                    parameters=data['parameters'],
+                    favored_patterns=data['favored_patterns'],
+                    time_frame=time_frame
                 )
-            except KeyError as e:
-                logging.error(f"Error processing strategy data: Missing key {e}")
-
-        # Fallback to default strategy if no valid strategies are found
-        if not generated_strategies:
-            logging.info(f"No valid strategies found for {time_frame.value}. Falling back to default strategy.")
-            return [self.create_default_strategy(time_frame)]
-
-        return generated_strategies
+                strategies.append(strategy)
+            return strategies
+        except json.JSONDecodeError:
+            logging.error(f"Invalid JSON response: {response_text}")
+            return []
+        except Exception as e:
+            logging.error(f"Error parsing strategies: {str(e)}")
+            return []
 
     def extract_strategy_info(self, text: str) -> List[Dict]:
         # Extract strategy information from raw text
