@@ -26,6 +26,17 @@ class Strategy:
             'max_drawdown': 0.0,
         }
         self.protection_period = None  # Add this line
+        # Add strategy-specific parameter initialization
+        if 'trend_following' in favored_patterns:
+            self.parameters.update(parameters.get('TREND_FOLLOWING_PARAMS', {}))
+        elif 'statistical_arbitrage' in favored_patterns:
+            self.parameters.update(parameters.get('STATISTICAL_ARBITRAGE_PARAMS', {}))
+        elif 'sentiment_analysis' in favored_patterns:
+            self.parameters.update(parameters.get('SENTIMENT_ANALYSIS_PARAMS', {}))
+        elif 'momentum' in favored_patterns:
+            self.parameters.update(parameters.get('MOMENTUM_PARAMS', {}))
+        elif 'volatility_clustering' in favored_patterns:
+            self.parameters.update(parameters.get('VOLATILITY_CLUSTERING_PARAMS', {}))
 
 
     def set_capital(self, capital: float):

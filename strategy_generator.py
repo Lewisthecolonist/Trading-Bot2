@@ -14,6 +14,7 @@ class StrategyGenerator:
         genai.configure(api_key=os.environ['GOOGLE_AI_API_KEY'])
         self.model = genai.GenerativeModel('gemini-pro')
         self.api_call_manager = APICallManager()
+        self.logger = logging.getLogger(__name__)
 
     async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
         strategies = {}
@@ -77,12 +78,13 @@ class StrategyGenerator:
 
     def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
         try:
-            # Remove the  prefix and  suffix if present
+            # Clean the JSON string
             cleaned_response = response_text.replace('', '').replace('', '').strip()
             strategy_data = json.loads(cleaned_response)
             strategies = []
         
             for data in strategy_data:
+                # Create Strategy object with validated data
                 strategy = Strategy(
                     strategy_name=data.get('name', 'Default Strategy'),
                     description=data.get('description', 'Default Description'),
@@ -93,7 +95,10 @@ class StrategyGenerator:
                 strategies.append(strategy)
             return strategies
         except json.JSONDecodeError:
-            self.logger.error(f"Invalid JSON response: {response_text}")
+            logging.error(f"Invalid JSON response: {response_text}")
+            return []
+        except Exception as e:
+            logging.error(f"Error parsing strategies: {str(e)}")
             return []
 
     def extract_strategy_info(self, text: str) -> List[Dict]:

@@ -56,7 +56,7 @@ class StrategyManager:
                 )
             elif not isinstance(strategy, Strategy):
                 raise TypeError("Invalid strategy type")
-                
+            
             strategy.protected_until = datetime.now() + self.protection_period
             self.strategies[strategy.time_frame][strategy.name] = strategy
             
@@ -172,7 +172,8 @@ class StrategyManager:
 
     def select_best_strategies(self, market_data: pd.DataFrame):
         try:
-            current_price = float(market_data['close'].iloc[-1])
+            market_data_copy = market_data.copy()
+            current_price = float(market_data_copy['close'].iloc[-1])
             
             stop_loss_pct = self.config.ADAPTIVE_PARAMS['STOP_LOSS_PCT']
             take_profit_pct = self.config.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT']
@@ -186,27 +187,26 @@ class StrategyManager:
                 stop_loss_price
             )
             
-            all_strategies = {tf: self.get_strategies_by_timeframe(tf) for tf in TimeFrame}
-            strategy_performance = {}
-            
-            for strategy in self.get_all_strategies():
-                strategy_performance[strategy.name] = strategy.calculate_performance(market_data.copy(), position_size)
+            # Convert strategies to immutable types for hashing
+            all_strategies = {tf: tuple(self.get_strategies_by_timeframe(tf)) for tf in TimeFrame}
+            strategy_performance = {
+                strategy.name: strategy.calculate_performance(market_data_copy, position_size)
+                for strategy in self.get_all_strategies()
+            }
 
             suitable_strategies = self.strategy_selector.select_strategies(
                 all_strategies,
                 strategy_performance,
-                market_data.copy(),
+                market_data_copy,
                 position_size
             )
 
             for time_frame in TimeFrame:
-                weighted_strategies = [(strategy, self.calculate_strategy_weight(strategy)) 
-                                    for strategy in suitable_strategies.get(time_frame, [])]
-                sorted_strategies = sorted(weighted_strategies, key=lambda x: x[1], reverse=True)
-                if sorted_strategies:
-                    selected_strategy = sorted_strategies[0][0]
-                    self.set_active_strategy(time_frame, selected_strategy)
-                    
+                strategies = suitable_strategies.get(time_frame, [])
+                if strategies:
+                    best_strategy = max(strategies, key=lambda s: self.calculate_strategy_weight(s))
+                    self.set_active_strategy(time_frame, best_strategy)
+                
         except Exception as e:
             self.logger.error(f"Error selecting best strategies: {str(e)}")
 

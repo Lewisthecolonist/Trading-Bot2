@@ -107,6 +107,27 @@ class Config:
             'ANNUAL_BTC_VOLATILITY': 0.46,  # 80% annual volatility for BTC
             'USDT_INTEREST_RATE': 0.05,  # 5% annual interest rate for USDT
             'RISK_PER_TRADE': 0.02,  # 2% risk per trade
+            'TREND_FOLLOWING_PARAMS': {
+            'MOMENTUM_PERIOD': 14,
+            'MOMENTUM_THRESHOLD': 0.05,
+            'TREND_STRENGTH_THRESHOLD': 0.02
+            },
+
+            'MEAN_REVERSION_PARAMS': {
+                'MEAN_WINDOW': 20,
+                'MEAN_REVERSION_THRESHOLD': 0.05
+            },
+
+            'BREAKOUT_PARAMS': {
+                'BREAKOUT_PERIOD': 20,
+                'BREAKOUT_THRESHOLD': 0.02
+            },
+
+            'VOLATILITY_PARAMS': {
+                'VOLATILITY_WINDOW': 20,
+                'HIGH_VOLATILITY_THRESHOLD': 1.5,
+                'LOW_VOLATILITY_THRESHOLD': 0.5
+            },
             # Extreme market condition parameters
             'BULL_MARKET_THRESHOLD': 2.0,  # 100% cumulative return for bull market
             'BEAR_MARKET_THRESHOLD': 0.5,  # -50% cumulative return for bear market
@@ -135,6 +156,55 @@ class Config:
             'MAX_ORDER_SIZE': Decimal('1.0'),  # Maximum order size in base currency
             'TICK_SIZE': Decimal('0.1'),  # Price tick size
             'LOT_SIZE': Decimal('0.001'),  # Amount lot size
+
+            'STATISTICAL_ARBITRAGE_PARAMS': {
+                'LOOKBACK_PERIOD': 20,
+                'Z_SCORE_THRESHOLD': 2.0,
+                'CORRELATION_THRESHOLD': 0.8,
+                'PAIR_RATIO_THRESHOLD': 0.02
+            },
+
+            'SENTIMENT_ANALYSIS_PARAMS': {
+                'POSITIVE_SENTIMENT_THRESHOLD': 0.6,
+                'NEGATIVE_SENTIMENT_THRESHOLD': 0.4,
+                'SENTIMENT_WINDOW': 24,
+                'SENTIMENT_IMPACT_WEIGHT': 0.3
+            },
+
+            'MOMENTUM_PARAMS': {
+                'MOMENTUM_PERIOD': 14,
+                'MOMENTUM_THRESHOLD': 0.05,
+                'ACCELERATION_FACTOR': 0.02,
+                'MAX_ACCELERATION': 0.2
+            },
+
+            'VOLATILITY_CLUSTERING_PARAMS': {
+                'VOLATILITY_WINDOW': 20,
+                'HIGH_VOLATILITY_THRESHOLD': 1.5,
+                'LOW_VOLATILITY_THRESHOLD': 0.5,
+                'GARCH_LAG': 5
+            },
+
+            'OPTIONS_STRATEGY_PARAMS': {
+                'DELTA_THRESHOLD': 0.3,
+                'GAMMA_LIMIT': 0.1,
+                'VEGA_EXPOSURE_LIMIT': 1000,
+                'IMPLIED_VOLATILITY_RANK_THRESHOLD': 0.5
+            },
+
+            'MARKET_MAKING_PARAMS': {
+                'BID_ASK_SPREAD': 0.002,
+                'INVENTORY_TARGET': 0.5,
+                'MAX_POSITION_DEVIATION': 0.2,
+                'ORDER_REFRESH_TIME': 30
+            },
+
+            'GRID_TRADING_PARAMS': {
+                'GRID_LEVELS': 10,
+                'GRID_SPACING': 0.01,
+                'PROFIT_PER_GRID': 0.005,
+                'MAX_ACTIVE_GRIDS': 5
+            }
         }
         self.current_strategy = None
 
@@ -159,7 +229,6 @@ class Config:
         self.monitor_thread = threading.Thread(target=self.monitor_portfolio)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
-
     def update_adaptive_params(self, strategy):
         self.current_strategy = strategy
         self.ADAPTIVE_PARAMS = {param: strategy.parameters[param] for param in strategy.optimize_params}
