@@ -91,7 +91,7 @@ class StrategyManager:
                     self.remove_strategy(strategy)
 
                 self.update_strategy_weights()
-                self.select_best_strategies(market_data, self.config.ASSET_POSITION_VALUE)
+                self.select_best_strategies(market_data)
 
                 await self.api_call_manager.record_call()
             except Exception as e:
@@ -167,7 +167,7 @@ class StrategyManager:
             self.logger.error(f"Error calculating strategy weight: {str(e)}")
             return 0.0
 
-    def select_best_strategies(self, market_data: pd.DataFrame, asset_position_value: float = None):
+    def select_best_strategies(self, market_data: pd.DataFrame):
         try:
             current_price = market_data['close'].iloc[-1]
         

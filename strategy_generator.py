@@ -41,10 +41,23 @@ class StrategyGenerator:
         prompt += f"14-day RSI: {self.calculate_rsi(market_data['close'], 14).iloc[-1]}\n"
         prompt += (
             f"Generate exactly 2 trading strategies for the {time_frame.value} time frame.\n"
-            "Return a JSON array with this exact structure:\n"
-            '[{"name": "strategy_name", "description": "strategy_description", '
-            '"parameters": {"param1": "value1", "param2": "value2"}, '
-            '"favored_patterns": ["pattern1", "pattern2"]}]'
+            f"Make sure to only include the following patterns mentioned as they are the only ones currently supported:\n"
+                "trend_following, "
+                "mean_reversion, "
+                "momentum, "
+                "breakout, "
+                "volatility_clustering, "
+                "statistical_arbitrage, "
+                "sentiment_analysis\n"
+            f"Return a JSON array with this exact structure, but don't mind the parameters used this is just an example:\n"
+            "{\n"
+                "\"name\": \"50-Day Moving Average Crossover\",\n"
+                "\"description\": \"Buy when the asset price crosses above the 50-day moving average and sell when it crosses below.\",\n"
+                "\"parameters\": {\n"
+                    "\"short_ma_window\": 50\n"
+                "},\n"
+                "\"favored_patterns\": [\"trend_following\"]\n"
+            "}"
         )
         return prompt
 
@@ -156,5 +169,5 @@ class StrategyGenerator:
                 description="Simple buy-and-hold strategy",
                 parameters={},
                 favored_patterns=[],
-                time_frame=TimeFrame.SHORT_TERM  
+                time_frame=TimeFrame.SHORT_TERM
             )
