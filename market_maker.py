@@ -146,6 +146,81 @@ class MarketMaker:
                     continue
                 else:
                     await asyncio.sleep(self.config.ERROR_RETRY_INTERVAL)
+    
+    async def _update_trend_following_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        volatility = self.calculate_current_volatility(market_data)
+        trend_strength = (market_data['close'].iloc[-1] - market_data['close'].iloc[-20]) / market_data['close'].iloc[-20]
+    
+    # Dynamically adjust moving average windows based on volatility
+        if volatility > self.config.ADAPTIVE_PARAMS['HIGH_VOLATILITY_THRESHOLD']:
+            strategy.parameters['MOVING_AVERAGE_SHORT'] = max(5, strategy.parameters.get('MOVING_AVERAGE_SHORT', 10) - 2)
+            strategy.parameters['MOVING_AVERAGE_LONG'] = max(20, strategy.parameters.get('MOVING_AVERAGE_LONG', 50) - 5)
+        else:
+            strategy.parameters['MOVING_AVERAGE_SHORT'] = min(20, strategy.parameters.get('MOVING_AVERAGE_SHORT', 10) + 2)
+            strategy.parameters['MOVING_AVERAGE_LONG'] = min(100, strategy.parameters.get('MOVING_AVERAGE_LONG', 50) + 5)
+    
+        strategy.parameters['TREND_STRENGTH_THRESHOLD'] = max(0.01, min(0.05, abs(trend_strength) * 0.8))
+
+    async def _update_statistical_arbitrage_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        # Adjust z-score threshold based on recent spread volatility
+        spread_volatility = market_data['asset1_close'].sub(market_data['asset2_close']).std()
+        strategy.parameters['Z_SCORE_THRESHOLD'] = max(1.5, min(3.0, spread_volatility * 1.5))
+    
+        # Adjust lookback period based on market regime
+        correlation = market_data['asset1_close'].corr(market_data['asset2_close'])
+        if correlation > 0.8:
+            strategy.parameters['LOOKBACK_PERIOD'] = max(10, strategy.parameters.get('LOOKBACK_PERIOD', 20) - 2)
+        else:
+            strategy.parameters['LOOKBACK_PERIOD'] = min(40, strategy.parameters.get('LOOKBACK_PERIOD', 20) + 2)
+
+    async def _update_volatility_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        current_volatility = self.calculate_current_volatility(market_data)
+        avg_volatility = market_data['close'].pct_change().rolling(window=20).std().mean()
+    
+        strategy.parameters['HIGH_VOLATILITY_THRESHOLD'] = max(1.2, min(2.0, current_volatility / avg_volatility * 1.5))
+        strategy.parameters['LOW_VOLATILITY_THRESHOLD'] = max(0.3, min(0.7, current_volatility / avg_volatility * 0.5))
+        strategy.parameters['VOLATILITY_WINDOW'] = max(10, min(30, int(20 * avg_volatility / current_volatility)))
+
+    async def _update_sentiment_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        recent_sentiment = market_data['sentiment_score'].iloc[-10:].mean()
+        sentiment_volatility = market_data['sentiment_score'].std()
+    
+        strategy.parameters['POSITIVE_SENTIMENT_THRESHOLD'] = min(0.8, max(0.6, recent_sentiment + sentiment_volatility))
+        strategy.parameters['NEGATIVE_SENTIMENT_THRESHOLD'] = max(0.2, min(0.4, recent_sentiment - sentiment_volatility))
+        strategy.parameters['SENTIMENT_IMPACT_WEIGHT'] = max(0.1, min(0.5, sentiment_volatility * 2))
+
+    async def _update_momentum_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        returns_volatility = market_data['close'].pct_change().std()
+        momentum = market_data['close'].pct_change(periods=14).iloc[-1]
+    
+        strategy.parameters['MOMENTUM_THRESHOLD'] = max(0.02, min(0.08, returns_volatility * 2))
+        strategy.parameters['ACCELERATION_FACTOR'] = max(0.01, min(0.03, abs(momentum) * 0.5))
+        strategy.parameters['MAX_ACCELERATION'] = max(0.1, min(0.3, returns_volatility * 4))
+
+    async def _update_options_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        implied_volatility = market_data['implied_volatility'].iloc[-1]
+        delta = market_data['delta'].iloc[-1]
+    
+        strategy.parameters['DELTA_THRESHOLD'] = max(0.2, min(0.4, implied_volatility * 0.5))
+        strategy.parameters['GAMMA_LIMIT'] = max(0.05, min(0.15, implied_volatility * 0.2))
+        strategy.parameters['VEGA_EXPOSURE_LIMIT'] = max(500, min(1500, implied_volatility * 1000))
+
+    async def _update_market_making_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        spread = market_data['ask'] - market_data['bid']
+        volume = market_data['volume'].iloc[-1]
+    
+        strategy.parameters['BID_ASK_SPREAD'] = max(0.001, min(0.005, spread.mean() * 0.8))
+        strategy.parameters['INVENTORY_TARGET'] = max(0.3, min(0.7, volume / market_data['volume'].mean()))
+        strategy.parameters['ORDER_REFRESH_TIME'] = max(15, min(45, int(30 * spread.std() / spread.mean())))
+
+    async def _update_grid_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        atr = self.calculate_atr(market_data)
+        price_range = market_data['high'].max() - market_data['low'].min()
+    
+        strategy.parameters['GRID_LEVELS'] = max(5, min(15, int(price_range / atr)))
+        strategy.parameters['GRID_SPACING'] = max(0.005, min(0.02, atr / market_data['close'].iloc[-1]))
+        strategy.parameters['PROFIT_PER_GRID'] = max(0.002, min(0.008, atr / market_data['close'].iloc[-1] * 0.5))
+
 
     async def update_market_data(self):
         await self.order_book.update()
@@ -188,7 +263,52 @@ class MarketMaker:
 
     async def place_orders(self, bid_price, ask_price, buy_amount, sell_amount):
         try:
-            # Place buy order
+            active_strategy = self.strategy_manager.get_active_strategy(TimeFrame.SHORT_TERM)
+        
+            if 'trend_following' in active_strategy.favored_patterns:
+                trend_strength = active_strategy.parameters['TREND_STRENGTH_THRESHOLD']
+                bid_price *= (1 - trend_strength)
+                ask_price *= (1 + trend_strength)
+            
+            elif 'statistical_arbitrage' in active_strategy.favored_patterns:
+                z_score = active_strategy.parameters['Z_SCORE_THRESHOLD']
+                spread_adjustment = z_score * market_data['spread'].std()
+                bid_price *= (1 - spread_adjustment)
+                ask_price *= (1 + spread_adjustment)
+            
+            elif 'volatility_clustering' in active_strategy.favored_patterns:
+                vol_threshold = active_strategy.parameters['HIGH_VOLATILITY_THRESHOLD']
+                vol_adjustment = vol_threshold * market_data['volatility'].iloc[-1]
+                buy_amount *= (1 - vol_adjustment)
+                sell_amount *= (1 - vol_adjustment)
+            
+            elif 'sentiment_analysis' in active_strategy.favored_patterns:
+                sentiment_impact = active_strategy.parameters['SENTIMENT_IMPACT_WEIGHT']
+                sentiment_score = market_data['sentiment_score'].iloc[-1]
+                bid_price *= (1 + sentiment_impact * sentiment_score)
+                ask_price *= (1 + sentiment_impact * sentiment_score)
+            
+            elif 'momentum' in active_strategy.favored_patterns:
+                momentum_factor = active_strategy.parameters['ACCELERATION_FACTOR']
+                momentum = market_data['close'].pct_change(periods=active_strategy.parameters['MOMENTUM_PERIOD']).iloc[-1]
+                bid_price *= (1 + momentum_factor * momentum)
+                ask_price *= (1 + momentum_factor * momentum)
+            
+            elif 'market_making' in active_strategy.favored_patterns:
+                spread = active_strategy.parameters['BID_ASK_SPREAD']
+                bid_price *= (1 - spread)
+                ask_price *= (1 + spread)
+            
+            elif 'grid_trading' in active_strategy.favored_patterns:
+                grid_spacing = active_strategy.parameters['GRID_SPACING']
+                grid_levels = active_strategy.parameters['GRID_LEVELS']
+                for i in range(grid_levels):
+                    grid_bid = bid_price * (1 - i * grid_spacing)
+                    grid_ask = ask_price * (1 + i * grid_spacing)
+                    await self._place_grid_orders(grid_bid, grid_ask, buy_amount/grid_levels, sell_amount/grid_levels)
+                return
+
+            # Place the orders with adjusted parameters
             buy_order = await self.wallet.place_order(
                 symbol=self.config.SYMBOL,
                 order_type='limit',
@@ -198,7 +318,6 @@ class MarketMaker:
             )
             self.current_orders['bid'] = buy_order['id']
 
-            # Place sell order
             sell_order = await self.wallet.place_order(
                 symbol=self.config.SYMBOL,
                 order_type='limit',
@@ -207,8 +326,6 @@ class MarketMaker:
                 price=float(ask_price)
             )
             self.current_orders['ask'] = sell_order['id']
-
-            await self.log(f"Orders placed - Buy: {buy_amount} @ {bid_price}, Sell: {sell_amount} @ {ask_price}", logging.INFO)
 
         except Exception as e:
             await self.log(f"Error placing orders: {e}", logging.ERROR)
