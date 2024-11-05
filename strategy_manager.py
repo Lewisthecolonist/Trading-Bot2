@@ -9,6 +9,7 @@ from api_call_manager import APICallManager
 import asyncio
 import logging
 from strategy import Strategy
+from risk_manager import RiskManager
 
 class StrategyManager:
     def __init__(self, config):
@@ -20,8 +21,8 @@ class StrategyManager:
         self.api_call_manager = APICallManager()
         self.logger = logging.getLogger(__name__)
         self.current_timestamp = datetime.now().timestamp()
-        self.average_market_volatility = 0.0  # Initialize market volatility
-
+        self.average_market_volatility = 0.0
+        self.risk_manager = RiskManager(config)  # Add this line
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
         if await self.api_call_manager.can_make_call():
             try:
@@ -45,18 +46,20 @@ class StrategyManager:
             return await self.initialize_strategies(strategy_generator, market_data)
     def add_strategy(self, strategy: Strategy):
         try:
-            if not isinstance(strategy, Strategy):
-                if isinstance(strategy, dict):
-                    strategy = Strategy(
-                        name=strategy.get('name', 'unnamed_strategy'),
-                        time_frame=strategy.get('time_frame'),
-                        parameters=strategy.get('parameters', {}),
-                        performance=strategy.get('performance', {'total_return': 0})
-                    )
-                else:
-                    raise TypeError("Object provided is not a valid Strategy instance or dictionary")
+            if isinstance(strategy, dict):
+                strategy = Strategy(
+                    strategy_name=strategy.get('name', 'unnamed_strategy'),
+                    description=strategy.get('description', 'No description'),
+                    parameters=strategy.get('parameters', {'INITIAL_CAPITAL': 10000}),
+                    favored_patterns=strategy.get('favored_patterns', ['trend_following']),
+                    time_frame=strategy.get('time_frame', TimeFrame.SHORT_TERM)
+                )
+            elif not isinstance(strategy, Strategy):
+                raise TypeError("Invalid strategy type")
+                
             strategy.protected_until = datetime.now() + self.protection_period
             self.strategies[strategy.time_frame][strategy.name] = strategy
+            
         except Exception as e:
             self.logger.error(f"Error adding strategy: {str(e)}")
     def remove_strategy(self, strategy: Strategy):
@@ -169,32 +172,30 @@ class StrategyManager:
 
     def select_best_strategies(self, market_data: pd.DataFrame):
         try:
-            current_price = market_data['close'].iloc[-1]
-        
-            # Use adaptive parameters for stop loss and take profit
+            current_price = float(market_data['close'].iloc[-1])
+            
             stop_loss_pct = self.config.ADAPTIVE_PARAMS['STOP_LOSS_PCT']
             take_profit_pct = self.config.ADAPTIVE_PARAMS['TAKE_PROFIT_PCT']
-        
+            
             stop_loss_price = current_price * (1 - stop_loss_pct)
             take_profit_price = current_price * (1 + take_profit_pct)
-        
+            
             position_size = self.risk_manager.calculate_position_size(
                 self.config.get_portfolio_value(),
                 current_price,
                 stop_loss_price
             )
-        
-            # Rest of the strategy selection logic remains the same
+            
             all_strategies = {tf: self.get_strategies_by_timeframe(tf) for tf in TimeFrame}
-            strategy_performance = {s.name: s.performance for s in self.get_all_strategies()}
-
+            strategy_performance = {}
+            
             for strategy in self.get_all_strategies():
-                strategy_performance[strategy.name] = strategy.calculate_performance(market_data, position_size)
+                strategy_performance[strategy.name] = strategy.calculate_performance(market_data.copy(), position_size)
 
             suitable_strategies = self.strategy_selector.select_strategies(
                 all_strategies,
                 strategy_performance,
-                market_data,
+                market_data.copy(),
                 position_size
             )
 
@@ -205,6 +206,7 @@ class StrategyManager:
                 if sorted_strategies:
                     selected_strategy = sorted_strategies[0][0]
                     self.set_active_strategy(time_frame, selected_strategy)
+                    
         except Exception as e:
             self.logger.error(f"Error selecting best strategies: {str(e)}")
 

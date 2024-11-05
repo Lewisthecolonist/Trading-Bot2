@@ -50,36 +50,50 @@ class StrategyGenerator:
                 "statistical_arbitrage, "
                 "sentiment_analysis\n"
             f"Return a JSON array with this exact structure, but don't mind the parameters used this is just an example:\n"
-            "{\n"
-                "\"name\": \"50-Day Moving Average Crossover\",\n"
-                "\"description\": \"Buy when the asset price crosses above the 50-day moving average and sell when it crosses below.\",\n"
-                "\"parameters\": {\n"
-                    "\"short_ma_window\": 50\n"
-                "},\n"
-                "\"favored_patterns\": [\"trend_following\"]\n"
-            "}"
+            '[\n'
+            '  {\n'
+            '    "name": "Moving Average Strategy",\n'
+            '    "description": "Moving average crossover strategy",\n'
+            '    "parameters": {\n'
+            '      "short_ma_window": 50,\n'
+            '      "INITIAL_CAPITAL": 10000\n'
+            '    },\n'
+            '    "favored_patterns": ["trend_following"],\n'
+            '    "time_frame": "1h"\n'
+            '  },\n'
+            '  {\n'
+            '    "name": "RSI Strategy",\n'
+            '    "description": "RSI-based momentum strategy",\n'
+            '    "parameters": {\n'
+            '      "rsi_period": 14,\n'
+            '      "INITIAL_CAPITAL": 10000\n'
+            '    },\n'
+            '    "favored_patterns": ["momentum"],\n'
+            '    "time_frame": "1h"\n'
+            '  }\n'
+            ']'
         )
         return prompt
 
     def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
         try:
-            strategy_data = json.loads(response_text)
+            # Remove the  prefix and  suffix if present
+            cleaned_response = response_text.replace('', '').replace('', '').strip()
+            strategy_data = json.loads(cleaned_response)
             strategies = []
+        
             for data in strategy_data:
                 strategy = Strategy(
-                    strategy_name=data['name'],
-                    description=data['description'],
-                    parameters=data['parameters'],
-                    favored_patterns=data['favored_patterns'],
+                    strategy_name=data.get('name', 'Default Strategy'),
+                    description=data.get('description', 'Default Description'),
+                    parameters=data.get('parameters', {'INITIAL_CAPITAL': 10000}),
+                    favored_patterns=data.get('favored_patterns', ['trend_following']),
                     time_frame=time_frame
                 )
                 strategies.append(strategy)
             return strategies
         except json.JSONDecodeError:
-            logging.error(f"Invalid JSON response: {response_text}")
-            return []
-        except Exception as e:
-            logging.error(f"Error parsing strategies: {str(e)}")
+            self.logger.error(f"Invalid JSON response: {response_text}")
             return []
 
     def extract_strategy_info(self, text: str) -> List[Dict]:
