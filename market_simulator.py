@@ -40,43 +40,73 @@ class MarketSimulator:
         self.prophet_model = self._create_prophet_model()
         self.gp_regressor = self._create_gp_regressor()
         
-        
     def generate_market_data(self, days=365):
+        # Initial price generation with regime switching
         prices, regimes = self._generate_complex_regime_switching_prices(days)
-        returns = np.diff(np.log(prices))  # Calculate returns
-        self.endog_data = returns  # Update endog_data here
-        self._update_regime_model()  # Ensure regime_model is updated
+        returns = np.diff(np.log(prices))
+        self.endog_data = returns
+        self._update_regime_model()
+
+        # Generate base market factors
         factors = self._generate_correlated_factors(days)
         on_chain_metrics = self._generate_on_chain_metrics(days)
         sentiment = self._generate_sentiment(days)
-        
-        prices = self._apply_strategy_patterns(prices, regimes)
+
+        # Apply strategy impacts with stress multipliers
+        strategy_weights = {
+            'trend_following': 0.15,
+            'mean_reversion': 0.15,
+            'momentum': 0.15,
+            'breakout': 0.15,
+            'volatility_clustering': 0.15,
+            'statistical_arbitrage': 0.15,
+            'sentiment_analysis': 0.10
+        }
+    
+        stress_multiplier = np.random.choice([1.5, 2.0, 2.5], size=days)
+    
+        # Apply weighted strategy impacts
+        for strategy in self.strategies.values():
+            for pattern in strategy.favored_patterns:
+                if pattern in strategy_weights:
+                    weight = strategy_weights[pattern]
+                    strategy_prices = getattr(self, f'_simulate_{pattern}')(prices, strategy.parameters)
+                    prices = prices + (strategy_prices - prices) * weight * stress_multiplier
+
+        # Apply existing market effects
         volumes = self._generate_volume_series(days, prices, regimes)
         volatility = self._generate_volatility_series(days, prices, regimes)
         liquidity = self._generate_liquidity(volumes, prices)
         order_book = self._simulate_order_book(days, prices, volumes, volatility, liquidity)
+    
+        # Apply sophisticated market dynamics
         prices, volumes = self._apply_network_effects(prices, volumes)
         prices = self._apply_long_term_cycles(prices)
         prices = self._apply_jump_diffusion(prices)
         prices = self._simulate_flash_crash(prices)
         prices = self.price_scaler.fit_transform(prices.reshape(-1, 1)).flatten()
         prices = self._add_microstructure_noise(prices)
+    
+        # Generate additional market features
         funding_rates = self._simulate_funding_rate(days, prices, volumes)
         exchange_prices = self._simulate_multiple_exchanges(prices)
         prices, volumes = self._apply_time_of_day_effects(prices, volumes)
         prices = self._simulate_news_events(prices, sentiment)
         prices = self._simulate_regulatory_events(prices)
-        
+    
+        # Apply advanced market mechanics
         order_book = self._simulate_spoofing(order_book)
         liquidity_pool_data = self._simulate_liquidity_pool(days, prices)
-        
+    
+        # Apply ML predictions and forecasts
         prices = self._apply_neural_network_prediction(prices)
         prices = self._apply_kalman_filter(prices)
         prophet_forecast = self._generate_prophet_forecast(prices)
         gp_forecast = self._generate_gp_forecast(prices)
         lotka_volterra = self._simulate_lotka_volterra(days)
         fractional_brownian = self._generate_fractional_brownian_motion(days)
-        
+
+        # Return the complete market dataset
         return pd.DataFrame({
             'price': prices,
             'volume': volumes,
@@ -104,7 +134,6 @@ class MarketSimulator:
             'lotka_volterra': lotka_volterra,
             'fractional_brownian': fractional_brownian
         })
-
 
     def _create_market_graph(self):
         G = nx.barabasi_albert_graph(n=100, m=2)
@@ -185,21 +214,68 @@ class MarketSimulator:
             sentiment[i] = model.simulate(1)[0]
         return np.tanh(sentiment)  # Normalize to [-1, 1]
 
+    def _simulate_trend_following(self, prices, params):
+        df = pd.DataFrame({'price': prices})
+        short_ma = df['price'].rolling(window=params.get('MOVING_AVERAGE_SHORT', 10)).mean()
+        long_ma = df['price'].rolling(window=params.get('MOVING_AVERAGE_LONG', 30)).mean()
+        trend_strength = (short_ma - long_ma) / long_ma
+        return prices * (1 + trend_strength * params.get('TREND_STRENGTH_THRESHOLD', 0.1))
+
+    def _simulate_mean_reversion(self, prices, params):
+        df = pd.DataFrame({'price': prices})
+        mean_price = df['price'].rolling(window=params.get('MEAN_WINDOW', 20)).mean()
+        deviation = (df['price'] - mean_price) / mean_price
+        return prices * (1 - deviation * params.get('MEAN_REVERSION_THRESHOLD', 0.05))
+
+    def _simulate_momentum(self, prices, params):
+        df = pd.DataFrame({'price': prices})
+        momentum = df['price'].pct_change(periods=params.get('MOMENTUM_PERIOD', 14))
+        return prices * (1 + momentum * params.get('MOMENTUM_THRESHOLD', 0.05))
+
+    def _simulate_breakout(self, prices, params):
+        df = pd.DataFrame({'price': prices})
+        upper_band = df['price'].rolling(window=params.get('BREAKOUT_PERIOD', 20)).max()
+        lower_band = df['price'].rolling(window=params.get('BREAKOUT_PERIOD', 20)).min()
+        breakout = np.where(prices > upper_band, 1.01, np.where(prices < lower_band, 0.99, 1))
+        return prices * breakout
+
+    def _simulate_volatility_clustering(self, prices, params):
+        df = pd.DataFrame({'price': prices})
+        volatility = df['price'].pct_change().rolling(params.get('VOLATILITY_WINDOW', 20)).std()
+        vol_ratio = volatility / volatility.rolling(100).mean()
+        return prices * np.where(vol_ratio > params.get('HIGH_VOLATILITY_THRESHOLD', 1.5), 1.1, 0.9)
+
+    def _simulate_statistical_arbitrage(self, prices, params):
+        asset2 = prices * (1 + np.random.normal(0, 0.01, len(prices)))
+        df = pd.DataFrame({'asset1': prices, 'asset2': asset2})
+        spread = df['asset1'] - df['asset2']
+        z_score = (spread - spread.rolling(params.get('LOOKBACK_PERIOD', 20)).mean()) / \
+        spread.rolling(params.get('LOOKBACK_PERIOD', 20)).std()
+        return prices * (1 + z_score / params.get('Z_SCORE_THRESHOLD', 2))
+
+    def _simulate_sentiment_based(self, prices, params):
+        sentiment_impact = self._generate_sentiment(len(prices)) * params.get('SENTIMENT_IMPACT_WEIGHT', 0.3)
+        return prices * (1 + sentiment_impact)
+
     def _apply_strategy_patterns(self, prices, regimes):
         original_prices = prices.copy()
-        num_strategies = len(self.strategies)
-        
+    
         for strategy in self.strategies.values():
-            if 'trend_following' in strategy.characteristics:
-                trend = np.cumsum(np.where(regimes == 0, 0.001, -0.001))
-                prices += (1/num_strategies) * (original_prices * np.exp(trend) - original_prices)
-            elif 'mean_reversion' in strategy.characteristics:
-                mean_price = np.mean(original_prices)
-                prices += (1/num_strategies) * ((mean_price - original_prices) * 0.01)
-            elif 'volatility_trading' in strategy.characteristics:
-                vol_factor = np.where(regimes == 1, 2, 1)
-                prices += (1/num_strategies) * (original_prices * np.exp(np.random.normal(0, 0.01 * vol_factor, len(original_prices))) - original_prices)
-        
+            if 'trend_following' in strategy.favored_patterns:
+                prices = self._simulate_trend_following(prices, strategy.parameters)
+            elif 'mean_reversion' in strategy.favored_patterns:
+                prices = self._simulate_mean_reversion(prices, strategy.parameters)
+            elif 'momentum' in strategy.favored_patterns:
+                prices = self._simulate_momentum(prices, strategy.parameters)
+            elif 'breakout' in strategy.favored_patterns:
+                prices = self._simulate_breakout(prices, strategy.parameters)
+            elif 'volatility_clustering' in strategy.favored_patterns:
+                prices = self._simulate_volatility_clustering(prices, strategy.parameters)
+            elif 'statistical_arbitrage' in strategy.favored_patterns:
+                prices = self._simulate_statistical_arbitrage(prices, strategy.parameters)
+            elif 'sentiment_analysis' in strategy.favored_patterns:
+                prices = self._simulate_sentiment_based(prices, strategy.parameters)
+    
         return prices
 
     @jit(nopython=True)

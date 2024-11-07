@@ -8,6 +8,79 @@ import logging
 import asyncio
 from api_call_manager import APICallManager
 
+VALID_STRATEGY_PARAMETERS = {
+    'trend_following': [
+        'MOVING_AVERAGE_SHORT',
+        'MOVING_AVERAGE_LONG',
+        'TREND_STRENGTH_THRESHOLD',
+        'TREND_CONFIRMATION_PERIOD',
+        'MOMENTUM_FACTOR',
+        'BREAKOUT_LEVEL',
+        'TRAILING_STOP'
+    ],
+    'mean_reversion': [
+        'MEAN_WINDOW',
+        'STD_MULTIPLIER',
+        'MEAN_REVERSION_THRESHOLD',
+        'ENTRY_DEVIATION',
+        'EXIT_DEVIATION',
+        'BOLLINGER_PERIOD',
+        'BOLLINGER_STD'
+    ],
+    'momentum': [
+        'MOMENTUM_PERIOD',
+        'MOMENTUM_THRESHOLD',
+        'RSI_PERIOD',
+        'RSI_OVERBOUGHT',
+        'RSI_OVERSOLD',
+        'ACCELERATION_FACTOR',
+        'MAX_ACCELERATION',
+        'MACD_FAST',
+        'MACD_SLOW',
+        'MACD_SIGNAL'
+    ],
+    'breakout': [
+        'BREAKOUT_PERIOD',
+        'BREAKOUT_THRESHOLD',
+        'VOLUME_CONFIRMATION_MULT',
+        'CONSOLIDATION_PERIOD',
+        'SUPPORT_RESISTANCE_LOOKBACK',
+        'BREAKOUT_CONFIRMATION_CANDLES',
+        'ATR_PERIOD'
+    ],
+    'volatility_clustering': [
+        'VOLATILITY_WINDOW',
+        'HIGH_VOLATILITY_THRESHOLD',
+        'LOW_VOLATILITY_THRESHOLD',
+        'GARCH_LAG',
+        'ATR_MULTIPLIER',
+        'VOLATILITY_BREAKOUT_THRESHOLD',
+        'VOLATILITY_MEAN_PERIOD'
+    ],
+    'statistical_arbitrage': [
+        'LOOKBACK_PERIOD',
+        'Z_SCORE_THRESHOLD',
+        'CORRELATION_THRESHOLD',
+        'HALF_LIFE',
+        'HEDGE_RATIO',
+        'ENTRY_THRESHOLD',
+        'EXIT_THRESHOLD',
+        'WINDOW_SIZE',
+        'MIN_CORRELATION',
+        'COINTEGRATION_THRESHOLD'
+    ],
+    'sentiment_analysis': [
+        'POSITIVE_SENTIMENT_THRESHOLD',
+        'NEGATIVE_SENTIMENT_THRESHOLD',
+        'SENTIMENT_WINDOW',
+        'SENTIMENT_IMPACT_WEIGHT',
+        'NEWS_IMPACT_DECAY',
+        'SENTIMENT_SMOOTHING_FACTOR',
+        'SENTIMENT_VOLUME_THRESHOLD',
+        'SENTIMENT_MOMENTUM_PERIOD'
+    ]
+}
+
 class StrategyGenerator:
     def __init__(self, config):
         self.config = config
@@ -34,7 +107,6 @@ class StrategyGenerator:
         return strategies
 
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
-        # Create a clear, precise prompt for the model
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"
         prompt += f"Asset prices: {market_data['close'].tail().to_dict()}\n"
         prompt += f"Volume: {market_data['volume'].tail().to_dict()}\n"
@@ -42,57 +114,84 @@ class StrategyGenerator:
         prompt += f"14-day RSI: {self.calculate_rsi(market_data['close'], 14).iloc[-1]}\n"
         prompt += (
             f"Generate exactly 2 trading strategies for the {time_frame.value} time frame.\n"
-            f"Make sure to only include the following patterns mentioned as they are the only ones currently supported:\n"
-                "trend_following, "
-                "mean_reversion, "
-                "momentum, "
-                "breakout, "
-                "volatility_clustering, "
-                "statistical_arbitrage, "
-                "sentiment_analysis\n"
-            f"Return a JSON array with this exact structure, but don't mind the parameters used this is just an example:\n"
+            f"Each strategy must use one of these exact strategy types in favored_patterns:\n"
+            "- trend_following\n"
+            "- mean_reversion\n"
+            "- momentum\n"
+            "- breakout\n"
+            "- volatility_clustering\n"
+            "- statistical_arbitrage\n"
+            "- sentiment_analysis\n\n"
+            f"Each strategy must use between 2 and 5 parameters from these valid parameters for each strategy type:\n"
+        )
+
+        # Add valid parameters for each strategy type
+        for strategy_type, params in VALID_STRATEGY_PARAMETERS.items():
+            prompt += f"\n{strategy_type}: {', '.join(params)}\n"
+
+        prompt += (
+            f"Return a JSON array with this structure. Include between 2-5 parameters per strategy(Timeframe value is an example):\n"
             '[\n'
             '  {\n'
-            '    "name": "Moving Average Strategy",\n'
-            '    "description": "Moving average crossover strategy",\n'
+            '    "name": "Strategy Name",\n'
+            '    "description": "Strategy description",\n'
             '    "parameters": {\n'
-            '      "short_ma_window": 50,\n'
-            '      "INITIAL_CAPITAL": 10000\n'
+            '      "param1": value1,\n'
+            '      "param2": value2,\n'
+            '      "param3": value3  // Optional additional parameters up to 5\n'
             '    },\n'
-            '    "favored_patterns": ["trend_following"],\n'
-            '    "time_frame": "1h"\n'
-            '  },\n'
-            '  {\n'
-            '    "name": "RSI Strategy",\n'
-            '    "description": "RSI-based momentum strategy",\n'
-            '    "parameters": {\n'
-            '      "rsi_period": 14,\n'
-            '      "INITIAL_CAPITAL": 10000\n'
-            '    },\n'
-            '    "favored_patterns": ["momentum"],\n'
+            '    "favored_patterns": ["pattern1"],\n'
             '    "time_frame": "1h"\n'
             '  }\n'
             ']'
         )
         return prompt
-
     def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
         try:
-            # Clean the JSON string
             cleaned_response = response_text.replace('', '').replace('', '').strip()
             strategy_data = json.loads(cleaned_response)
             strategies = []
         
+            valid_strategy_types = [
+                'trend_following',
+                'mean_reversion',
+                'momentum',
+                'breakout',
+                'volatility_clustering',
+                'statistical_arbitrage',
+                'sentiment_analysis'
+            ]
+        
             for data in strategy_data:
-                # Create Strategy object with validated data
+                # Validate strategy type
+                strategy_type = data.get('favored_patterns', [])[0] if data.get('favored_patterns') else None
+                if not strategy_type or strategy_type not in valid_strategy_types:
+                    continue
+            
+                valid_params = VALID_STRATEGY_PARAMETERS.get(strategy_type, [])
+                filtered_parameters = {
+                    k: v for k, v in data.get('parameters', {}).items() 
+                    if k in valid_params or k == 'INITIAL_CAPITAL'
+                }
+            
+                # Enforce parameter count requirements
+                if len(filtered_parameters) < 2:
+                    default_params = self.config.ADAPTIVE_PARAMS[f'{strategy_type.upper()}_PARAMS']
+                    for param in valid_params[:2]:
+                        if param not in filtered_parameters:
+                            filtered_parameters[param] = default_params.get(param)
+                elif len(filtered_parameters) > 5:
+                    filtered_parameters = dict(list(filtered_parameters.items())[:5])
+            
                 strategy = Strategy(
                     strategy_name=data.get('name', 'Default Strategy'),
                     description=data.get('description', 'Default Description'),
-                    parameters=data.get('parameters', {'INITIAL_CAPITAL': 10000}),
-                    favored_patterns=data.get('favored_patterns', ['trend_following']),
+                    parameters=filtered_parameters,
+                    favored_patterns=[strategy_type],
                     time_frame=time_frame
                 )
                 strategies.append(strategy)
+        
             return strategies
         except json.JSONDecodeError:
             logging.error(f"Invalid JSON response: {response_text}")

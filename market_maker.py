@@ -21,6 +21,79 @@ import aiofiles
 from watchdog.observers import Observer
 from strategy_manager import StrategyManager
 
+VALID_STRATEGY_PARAMETERS = {
+    'trend_following': [
+        'MOVING_AVERAGE_SHORT',
+        'MOVING_AVERAGE_LONG',
+        'TREND_STRENGTH_THRESHOLD',
+        'TREND_CONFIRMATION_PERIOD',
+        'MOMENTUM_FACTOR',
+        'BREAKOUT_LEVEL',
+        'TRAILING_STOP'
+    ],
+    'mean_reversion': [
+        'MEAN_WINDOW',
+        'STD_MULTIPLIER',
+        'MEAN_REVERSION_THRESHOLD',
+        'ENTRY_DEVIATION',
+        'EXIT_DEVIATION',
+        'BOLLINGER_PERIOD',
+        'BOLLINGER_STD'
+    ],
+    'momentum': [
+        'MOMENTUM_PERIOD',
+        'MOMENTUM_THRESHOLD',
+        'RSI_PERIOD',
+        'RSI_OVERBOUGHT',
+        'RSI_OVERSOLD',
+        'ACCELERATION_FACTOR',
+        'MAX_ACCELERATION',
+        'MACD_FAST',
+        'MACD_SLOW',
+        'MACD_SIGNAL'
+    ],
+    'breakout': [
+        'BREAKOUT_PERIOD',
+        'BREAKOUT_THRESHOLD',
+        'VOLUME_CONFIRMATION_MULT',
+        'CONSOLIDATION_PERIOD',
+        'SUPPORT_RESISTANCE_LOOKBACK',
+        'BREAKOUT_CONFIRMATION_CANDLES',
+        'ATR_PERIOD'
+    ],
+    'volatility_clustering': [
+        'VOLATILITY_WINDOW',
+        'HIGH_VOLATILITY_THRESHOLD',
+        'LOW_VOLATILITY_THRESHOLD',
+        'GARCH_LAG',
+        'ATR_MULTIPLIER',
+        'VOLATILITY_BREAKOUT_THRESHOLD',
+        'VOLATILITY_MEAN_PERIOD'
+    ],
+    'statistical_arbitrage': [
+        'LOOKBACK_PERIOD',
+        'Z_SCORE_THRESHOLD',
+        'CORRELATION_THRESHOLD',
+        'HALF_LIFE',
+        'HEDGE_RATIO',
+        'ENTRY_THRESHOLD',
+        'EXIT_THRESHOLD',
+        'WINDOW_SIZE',
+        'MIN_CORRELATION',
+        'COINTEGRATION_THRESHOLD'
+    ],
+    'sentiment_analysis': [
+        'POSITIVE_SENTIMENT_THRESHOLD',
+        'NEGATIVE_SENTIMENT_THRESHOLD',
+        'SENTIMENT_WINDOW',
+        'SENTIMENT_IMPACT_WEIGHT',
+        'NEWS_IMPACT_DECAY',
+        'SENTIMENT_SMOOTHING_FACTOR',
+        'SENTIMENT_VOLUME_THRESHOLD',
+        'SENTIMENT_MOMENTUM_PERIOD'
+    ]
+}
+
 class MarketMakerError(Exception):
     pass
 
@@ -257,9 +330,24 @@ class MarketMaker:
             return
 
         bid_price, ask_price, buy_amount, sell_amount = adjusted_params
+        active_strategy = self.strategy_manager.get_active_strategy(TimeFrame.SHORT_TERM)
+
+        # Apply strategy-specific adjustments using valid parameters
+        if active_strategy:
+            pattern = active_strategy.favored_patterns[0]
+            if pattern in VALID_STRATEGY_PARAMETERS:
+                valid_params = VALID_STRATEGY_PARAMETERS[pattern]
+                for param in valid_params:
+                    if param in active_strategy.parameters:
+                        # Apply parameter adjustments based on strategy type
+                        bid_price, ask_price, buy_amount, sell_amount = self._adjust_orders_by_strategy(
+                            pattern, param, active_strategy.parameters[param],
+                            bid_price, ask_price, buy_amount, sell_amount
+                        )
 
         await self.cancel_existing_orders()
         await self.place_orders(bid_price, ask_price, buy_amount, sell_amount)
+
 
     async def place_orders(self, bid_price, ask_price, buy_amount, sell_amount):
         try:

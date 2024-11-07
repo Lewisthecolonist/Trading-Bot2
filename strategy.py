@@ -6,6 +6,79 @@ from config import Config
 import itertools
 from datetime import datetime, timedelta
 
+VALID_STRATEGY_PARAMETERS = {
+    'trend_following': [
+        'MOVING_AVERAGE_SHORT',
+        'MOVING_AVERAGE_LONG',
+        'TREND_STRENGTH_THRESHOLD',
+        'TREND_CONFIRMATION_PERIOD',
+        'MOMENTUM_FACTOR',
+        'BREAKOUT_LEVEL',
+        'TRAILING_STOP'
+    ],
+    'mean_reversion': [
+        'MEAN_WINDOW',
+        'STD_MULTIPLIER',
+        'MEAN_REVERSION_THRESHOLD',
+        'ENTRY_DEVIATION',
+        'EXIT_DEVIATION',
+        'BOLLINGER_PERIOD',
+        'BOLLINGER_STD'
+    ],
+    'momentum': [
+        'MOMENTUM_PERIOD',
+        'MOMENTUM_THRESHOLD',
+        'RSI_PERIOD',
+        'RSI_OVERBOUGHT',
+        'RSI_OVERSOLD',
+        'ACCELERATION_FACTOR',
+        'MAX_ACCELERATION',
+        'MACD_FAST',
+        'MACD_SLOW',
+        'MACD_SIGNAL'
+    ],
+    'breakout': [
+        'BREAKOUT_PERIOD',
+        'BREAKOUT_THRESHOLD',
+        'VOLUME_CONFIRMATION_MULT',
+        'CONSOLIDATION_PERIOD',
+        'SUPPORT_RESISTANCE_LOOKBACK',
+        'BREAKOUT_CONFIRMATION_CANDLES',
+        'ATR_PERIOD'
+    ],
+    'volatility_clustering': [
+        'VOLATILITY_WINDOW',
+        'HIGH_VOLATILITY_THRESHOLD',
+        'LOW_VOLATILITY_THRESHOLD',
+        'GARCH_LAG',
+        'ATR_MULTIPLIER',
+        'VOLATILITY_BREAKOUT_THRESHOLD',
+        'VOLATILITY_MEAN_PERIOD'
+    ],
+    'statistical_arbitrage': [
+        'LOOKBACK_PERIOD',
+        'Z_SCORE_THRESHOLD',
+        'CORRELATION_THRESHOLD',
+        'HALF_LIFE',
+        'HEDGE_RATIO',
+        'ENTRY_THRESHOLD',
+        'EXIT_THRESHOLD',
+        'WINDOW_SIZE',
+        'MIN_CORRELATION',
+        'COINTEGRATION_THRESHOLD'
+    ],
+    'sentiment_analysis': [
+        'POSITIVE_SENTIMENT_THRESHOLD',
+        'NEGATIVE_SENTIMENT_THRESHOLD',
+        'SENTIMENT_WINDOW',
+        'SENTIMENT_IMPACT_WEIGHT',
+        'NEWS_IMPACT_DECAY',
+        'SENTIMENT_SMOOTHING_FACTOR',
+        'SENTIMENT_VOLUME_THRESHOLD',
+        'SENTIMENT_MOMENTUM_PERIOD'
+    ]
+}
+
 class TimeFrame(Enum):
     SHORT_TERM = "short_term"
     MID_TERM = "mid_term"
@@ -28,16 +101,26 @@ class Strategy:
         self.protection_period = None  # Add this line
         # Add strategy-specific parameter initialization
         if 'trend_following' in favored_patterns:
-            self.parameters.update(parameters.get('TREND_FOLLOWING_PARAMS', {}))
-        elif 'statistical_arbitrage' in favored_patterns:
-            self.parameters.update(parameters.get('STATISTICAL_ARBITRAGE_PARAMS', {}))
-        elif 'sentiment_analysis' in favored_patterns:
-            self.parameters.update(parameters.get('SENTIMENT_ANALYSIS_PARAMS', {}))
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['TREND_FOLLOWING_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['trend_following']})
+        elif 'mean_reversion' in favored_patterns:
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['MEAN_REVERSION_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['mean_reversion']})
         elif 'momentum' in favored_patterns:
-            self.parameters.update(parameters.get('MOMENTUM_PARAMS', {}))
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['MOMENTUM_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['momentum']})
+        elif 'breakout' in favored_patterns:
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['BREAKOUT_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['breakout']})
         elif 'volatility_clustering' in favored_patterns:
-            self.parameters.update(parameters.get('VOLATILITY_CLUSTERING_PARAMS', {}))
-
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['VOLATILITY_CLUSTERING_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['volatility_clustering']})
+        elif 'statistical_arbitrage' in favored_patterns:
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['STATISTICAL_ARBITRAGE_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['statistical_arbitrage']})
+        elif 'sentiment_analysis' in favored_patterns:
+            self.parameters.update({k: parameters.get(k, Config().ADAPTIVE_PARAMS['SENTIMENT_ANALYSIS_PARAMS'][k]) 
+                                 for k in VALID_STRATEGY_PARAMETERS['sentiment_analysis']})
 
     def set_capital(self, capital: float):
         self.capital = capital

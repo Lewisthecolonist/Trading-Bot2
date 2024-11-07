@@ -4,9 +4,12 @@ import threading
 import time
 from decimal import Decimal
 import google.generativeai as genai
+import itertools
 
 class Config:
     def __init__(self):
+        self.nonce_counter = itertools.count(int(time.time() * 1000))
+        self.nonce_lock = threading.Lock()
         self.BASE_PARAMS = {
             # API Keys
             'CRYPTO_COMPARE_API_KEY': os.getenv("CRYPTO_COMPARE_API_KEY"),
@@ -80,7 +83,7 @@ class Config:
             'MAX_DRAWDOWN_THRESHOLD': 0.2,  # 20% maximum allowable drawdown
             'LEVERAGE': 1,  # 1 means no leverage, 2 means 2x leverage, etc.
         }
-
+        
         self.ADAPTIVE_PARAMS = {
             # Strategy parameters (you might want to move these to strategies.json)
             'MOVING_AVERAGE_SHORT': 10,
@@ -157,63 +160,97 @@ class Config:
             'TICK_SIZE': Decimal('0.1'),  # Price tick size
             'LOT_SIZE': Decimal('0.001'),  # Amount lot size
 
-            'STATISTICAL_ARBITRAGE_PARAMS': {
-                'LOOKBACK_PERIOD': 20,
-                'Z_SCORE_THRESHOLD': 2.0,
-                'CORRELATION_THRESHOLD': 0.8,
-                'PAIR_RATIO_THRESHOLD': 0.02
+            'TREND_FOLLOWING_PARAMS': {
+                'MOVING_AVERAGE_SHORT': 10,
+                'MOVING_AVERAGE_LONG': 30,
+                'TREND_STRENGTH_THRESHOLD': 0.02,
+                'TREND_CONFIRMATION_PERIOD': 5,
+                'MOMENTUM_FACTOR': 0.1,
+                'BREAKOUT_LEVEL': 0.03,
+                'TRAILING_STOP': 0.02
             },
 
-            'SENTIMENT_ANALYSIS_PARAMS': {
-                'POSITIVE_SENTIMENT_THRESHOLD': 0.6,
-                'NEGATIVE_SENTIMENT_THRESHOLD': 0.4,
-                'SENTIMENT_WINDOW': 24,
-                'SENTIMENT_IMPACT_WEIGHT': 0.3
+            'MEAN_REVERSION_PARAMS': {
+                'MEAN_WINDOW': 20,
+                'STD_MULTIPLIER': 2.0,
+                'MEAN_REVERSION_THRESHOLD': 0.05,
+                'ENTRY_DEVIATION': 0.02,
+                'EXIT_DEVIATION': 0.01,
+                'BOLLINGER_PERIOD': 20,
+                'BOLLINGER_STD': 2.0
             },
 
             'MOMENTUM_PARAMS': {
                 'MOMENTUM_PERIOD': 14,
                 'MOMENTUM_THRESHOLD': 0.05,
+                'RSI_PERIOD': 14,
+                'RSI_OVERBOUGHT': 70,
+                'RSI_OVERSOLD': 30,
                 'ACCELERATION_FACTOR': 0.02,
-                'MAX_ACCELERATION': 0.2
+                'MAX_ACCELERATION': 0.2,
+                'MACD_FAST': 12,
+                'MACD_SLOW': 26,
+                'MACD_SIGNAL': 9
+            },
+
+            'BREAKOUT_PARAMS': {
+                'BREAKOUT_PERIOD': 20,
+                'BREAKOUT_THRESHOLD': 0.02,
+                'VOLUME_CONFIRMATION_MULT': 1.5,
+                'CONSOLIDATION_PERIOD': 10,
+                'SUPPORT_RESISTANCE_LOOKBACK': 50,
+                'BREAKOUT_CONFIRMATION_CANDLES': 3,
+                'ATR_PERIOD': 14
             },
 
             'VOLATILITY_CLUSTERING_PARAMS': {
                 'VOLATILITY_WINDOW': 20,
                 'HIGH_VOLATILITY_THRESHOLD': 1.5,
                 'LOW_VOLATILITY_THRESHOLD': 0.5,
-                'GARCH_LAG': 5
+                'GARCH_LAG': 5,
+                'ATR_MULTIPLIER': 2.0,
+                'VOLATILITY_BREAKOUT_THRESHOLD': 2.0,
+                'VOLATILITY_MEAN_PERIOD': 50
             },
 
-            'OPTIONS_STRATEGY_PARAMS': {
-                'DELTA_THRESHOLD': 0.3,
-                'GAMMA_LIMIT': 0.1,
-                'VEGA_EXPOSURE_LIMIT': 1000,
-                'IMPLIED_VOLATILITY_RANK_THRESHOLD': 0.5
+            'STATISTICAL_ARBITRAGE_PARAMS': {
+                'LOOKBACK_PERIOD': 20,
+                'Z_SCORE_THRESHOLD': 2.0,
+                'CORRELATION_THRESHOLD': 0.8,
+                'HALF_LIFE': 10,
+                'HEDGE_RATIO': 1.0,
+                'ENTRY_THRESHOLD': 2.0,
+                'EXIT_THRESHOLD': 0.5,
+                'WINDOW_SIZE': 60,
+                'MIN_CORRELATION': 0.7,
+                'COINTEGRATION_THRESHOLD': 0.05
             },
 
-            'MARKET_MAKING_PARAMS': {
-                'BID_ASK_SPREAD': 0.002,
-                'INVENTORY_TARGET': 0.5,
-                'MAX_POSITION_DEVIATION': 0.2,
-                'ORDER_REFRESH_TIME': 30
-            },
-
-            'GRID_TRADING_PARAMS': {
-                'GRID_LEVELS': 10,
-                'GRID_SPACING': 0.01,
-                'PROFIT_PER_GRID': 0.005,
-                'MAX_ACTIVE_GRIDS': 5
+            'SENTIMENT_ANALYSIS_PARAMS': {
+                'POSITIVE_SENTIMENT_THRESHOLD': 0.6,
+                'NEGATIVE_SENTIMENT_THRESHOLD': 0.4,
+                'SENTIMENT_WINDOW': 24,
+                'SENTIMENT_IMPACT_WEIGHT': 0.3,
+                'NEWS_IMPACT_DECAY': 0.95,
+                'SENTIMENT_SMOOTHING_FACTOR': 0.1,
+                'SENTIMENT_VOLUME_THRESHOLD': 1000,
+                'SENTIMENT_MOMENTUM_PERIOD': 12
             }
+
         }
         self.current_strategy = None
-
+        
+        def get_nonce(self):
+            with self.nonce_lock:
+                return next(self.nonce_counter)
+        
         # Initialize exchange
         self.exchange = ccxt.kraken({
             'apiKey': self.BASE_PARAMS['KRAKEN_API_KEY'],
             'secret': self.BASE_PARAMS['KRAKEN_PRIVATE_KEY'],
             'enableRateLimit': True,
-            'options': {'defaultType': 'future'}  # Use this for futures trading
+            'options': {'defaultType': 'future'},
+            'nonce': lambda: self.get_nonce()
         })
 
         # Portfolio tracking
