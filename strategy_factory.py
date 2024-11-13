@@ -4,6 +4,7 @@ from strategy_generator import StrategyGenerator
 from strategy import Strategy
 from typing import Callable
 import pandas as pd
+from strategy import TimeFrame
 
 class StrategyFactory:
     def __init__(self, market_maker, config, config_file_path):
@@ -29,8 +30,11 @@ class StrategyFactory:
 
 
     def save_strategy_config(self):
+        serializable_strategies = {
+            name: strategy.to_dict() for name, strategy in self.strategies.items()
+        }
         with open(self.config_file_path, 'w') as f:
-            json.dump(self.strategies, f, indent=4)
+            json.dump(serializable_strategies, f, indent=4)
 
     async def generate_and_update_strategies(self):
         market_data = await self.market_maker.get_recent_data()
@@ -41,7 +45,8 @@ class StrategyFactory:
                 self.update_strategy(strategy.name, strategy)
 
     def update_strategy(self, strategy_name: str, strategy: Strategy):
-        self.strategies[strategy_name] = strategy.__dict__
+        # Store the strategy object directly
+        self.strategies[strategy_name] = strategy
         self.signal_methods[strategy_name] = self.create_signal_method(strategy)
         self.save_strategy_config()
 
@@ -73,3 +78,21 @@ class StrategyFactory:
             del self.signal_methods[strategy_name]
             self.save_strategy_config()
             print(f"Strategy {strategy_name} deleted.")
+
+    def create_strategy(self, timeframe: TimeFrame, strategy_type: str):
+        parameters = self._get_timeframe_parameters(timeframe)
+        return Strategy(
+            timeframe=timeframe,
+            parameters=parameters,
+            favored_patterns=[strategy_type]
+        )
+
+    def _get_timeframe_parameters(self, timeframe: TimeFrame):
+        base_params = self.config.get_base_params()
+        timeframe_specific = {
+            TimeFrame.SHORT_TERM: {'interval': '1m', 'lookback': 60},
+            TimeFrame.MID_TERM: {'interval': '1h', 'lookback': 504},
+            TimeFrame.LONG_TERM: {'interval': '1d', 'lookback': 365},
+            TimeFrame.SEASONAL_TERM: {'interval': '1m', 'lookback': 1460}
+        }
+        return {**base_params, **timeframe_specific[timeframe]}

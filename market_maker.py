@@ -10,7 +10,7 @@ from compliance import ComplianceChecker
 from strategy_factory import StrategyFactory
 from strategy_selector import StrategySelector
 from strategy_generator import StrategyGenerator
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from strategy import Strategy, TimeFrame
 from datetime import datetime, time, timedelta
 from event import MarketEvent, SignalEvent
@@ -20,6 +20,7 @@ import psutil
 import aiofiles
 from watchdog.observers import Observer
 from strategy_manager import StrategyManager
+import math
 
 VALID_STRATEGY_PARAMETERS = {
     'trend_following': [
@@ -120,9 +121,31 @@ class MarketMaker:
         self.strategy_performance = {}
         self.events = []
         self.observer = Observer()
-        self.strategy_manager = StrategyManager(config)
+        self.strategy_manager = StrategyManager(config, use_ai_selection=True)
         self.logger = logging.getLogger(__name__)
         self.strategy_generator = StrategyGenerator(config)
+        self.timeframe_handlers = {
+            TimeFrame.SHORT_TERM: self._handle_short_term,
+            TimeFrame.MID_TERM: self._handle_mid_term,
+            TimeFrame.LONG_TERM: self._handle_long_term,
+            TimeFrame.SEASONAL_TERM: self._handle_seasonal_term
+        }
+
+    async def _handle_short_term(self, market_data):
+        signal = await self.strategy_manager.get_weighted_signal(TimeFrame.SHORT_TERM, market_data)
+        return self._execute_short_term_trades(signal, market_data)
+
+    async def _handle_mid_term(self, market_data):
+        signal = await self.strategy_manager.get_weighted_signal(TimeFrame.MID_TERM, market_data)
+        return self._execute_mid_term_trades(signal, market_data)
+
+    async def _handle_long_term(self, market_data):
+        signal = await self.strategy_manager.get_weighted_signal(TimeFrame.LONG_TERM, market_data)
+        return self._execute_long_term_trades(signal, market_data)
+
+    async def _handle_seasonal_term(self, market_data):
+        signal = await self.strategy_manager.get_weighted_signal(TimeFrame.SEASONAL_TERM, market_data)
+        return self._execute_seasonal_trades(signal, market_data)
 
     async def log(self, message, level=logging.INFO):
         loop = asyncio.get_event_loop()
@@ -141,7 +164,6 @@ class MarketMaker:
     async def run(self):
         await self.initialize()
         last_performance_update = asyncio.get_event_loop().time()
-        last_strategy_generation = asyncio.get_event_loop().time()
         last_rebalance = asyncio.get_event_loop().time()
         last_performance_report = asyncio.get_event_loop().time()
         last_health_check = asyncio.get_event_loop().time()
@@ -151,13 +173,20 @@ class MarketMaker:
             try:
                 current_time = asyncio.get_event_loop().time()
 
+                # Get data for different timeframes
+                short_term_data = await self.get_market_data('1m')
+                mid_term_data = await self.get_market_data('1h') 
+                long_term_data = await self.get_market_data('1w')
+                seasonal_data = await self.get_market_data('1M')
+
+                # Process each timeframe independently
+                await self._process_timeframe(TimeFrame.SHORT_TERM, short_term_data)
+                await self._process_timeframe(TimeFrame.MID_TERM, mid_term_data)
+                await self._process_timeframe(TimeFrame.LONG_TERM, long_term_data)
+                await self._process_timeframe(TimeFrame.SEASONAL_TERM, seasonal_data)
+
                 # Update market data
                 market_data = await self.update_market_data()
-
-                # Periodically generate new strategies
-                if current_time - last_strategy_generation >= self.config.STRATEGY_GENERATION_INTERVAL:
-                    await self.strategy_manager.generate_strategies(market_data)
-                    last_strategy_generation = current_time
 
                 # Generate and handle market events for each time frame
                 for time_frame in TimeFrame:
@@ -221,54 +250,118 @@ class MarketMaker:
                     await asyncio.sleep(self.config.ERROR_RETRY_INTERVAL)
     
     async def _update_trend_following_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        if not hasattr(strategy, 'parameters'):
+            return
+        
         volatility = self.calculate_current_volatility(market_data)
         trend_strength = (market_data['close'].iloc[-1] - market_data['close'].iloc[-20]) / market_data['close'].iloc[-20]
     
-    # Dynamically adjust moving average windows based on volatility
-        if volatility > self.config.ADAPTIVE_PARAMS['HIGH_VOLATILITY_THRESHOLD']:
-            strategy.parameters['MOVING_AVERAGE_SHORT'] = max(5, strategy.parameters.get('MOVING_AVERAGE_SHORT', 10) - 2)
-            strategy.parameters['MOVING_AVERAGE_LONG'] = max(20, strategy.parameters.get('MOVING_AVERAGE_LONG', 50) - 5)
-        else:
-            strategy.parameters['MOVING_AVERAGE_SHORT'] = min(20, strategy.parameters.get('MOVING_AVERAGE_SHORT', 10) + 2)
-            strategy.parameters['MOVING_AVERAGE_LONG'] = min(100, strategy.parameters.get('MOVING_AVERAGE_LONG', 50) + 5)
+        trend_params = self.config.ADAPTIVE_PARAMS['TREND_FOLLOWING_PARAMS']
+        for param, value in trend_params.items():
+            if param in strategy.parameters:
+                if param == 'MOVING_AVERAGE_SHORT':
+                    strategy.parameters[param] = max(5, min(20, int(volatility * value)))
+                elif param == 'MOVING_AVERAGE_LONG':
+                    strategy.parameters[param] = max(20, min(100, int(volatility * value)))
+                elif param == 'TREND_STRENGTH_THRESHOLD':
+                    strategy.parameters[param] = max(0.01, min(0.05, value * abs(trend_strength)))
+                elif param == 'TREND_CONFIRMATION_PERIOD':
+                    strategy.parameters[param] = max(3, min(7, int(value * volatility)))
+                elif param in ['MOMENTUM_FACTOR', 'BREAKOUT_LEVEL', 'TRAILING_STOP']:
+                    strategy.parameters[param] = max(0.01, min(0.05, value * volatility))
+
+    async def _update_mean_reversion_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        if not hasattr(strategy, 'parameters'):
+            return
+
+        volatility = self.calculate_current_volatility(market_data)
+        mean_params = self.config.ADAPTIVE_PARAMS['MEAN_REVERSION_PARAMS']
     
-        strategy.parameters['TREND_STRENGTH_THRESHOLD'] = max(0.01, min(0.05, abs(trend_strength) * 0.8))
+        for param, value in mean_params.items():
+            if param in strategy.parameters:
+                if param == 'MEAN_WINDOW':
+                    strategy.parameters[param] = max(10, min(30, int(value * volatility)))
+                elif param == 'STD_MULTIPLIER':
+                    strategy.parameters[param] = max(1.5, min(2.5, value * volatility))
+                elif param in ['MEAN_REVERSION_THRESHOLD', 'ENTRY_DEVIATION', 'EXIT_DEVIATION']:
+                    strategy.parameters[param] = max(0.01, min(0.1, value * volatility))
+                elif param in ['BOLLINGER_PERIOD', 'BOLLINGER_STD']:
+                    strategy.parameters[param] = max(10, min(30, int(value * volatility)))
+
+    async def _update_breakout_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        if not hasattr(strategy, 'parameters'):
+            return
+        
+        volatility = self.calculate_current_volatility(market_data)
+        volume_trend = market_data['volume'].pct_change().mean()
+        breakout_params = self.config.ADAPTIVE_PARAMS['BREAKOUT_PARAMS']
+    
+        for param, value in breakout_params.items():
+            if param in strategy.parameters:
+                if param == 'BREAKOUT_PERIOD':
+                    strategy.parameters[param] = max(10, min(30, int(value * volatility)))
+                elif param == 'BREAKOUT_THRESHOLD':
+                    strategy.parameters[param] = max(0.01, min(0.05, value * volatility))
+                elif param == 'VOLUME_CONFIRMATION_MULT':
+                    strategy.parameters[param] = max(1.2, min(2.0, value * (1 + volume_trend)))
+                elif param in ['CONSOLIDATION_PERIOD', 'ATR_PERIOD']:
+                    strategy.parameters[param] = max(5, min(20, int(value * volatility)))
+
+    async def _update_volatility_clustering_params(self, strategy: Strategy, market_data: pd.DataFrame):
+        if not hasattr(strategy, 'parameters'):
+            return
+        
+        current_volatility = self.calculate_current_volatility(market_data)
+        vol_params = self.config.ADAPTIVE_PARAMS['VOLATILITY_CLUSTERING_PARAMS']
+    
+        for param, value in vol_params.items():
+            if param in strategy.parameters:
+                if param in ['VOLATILITY_WINDOW', 'VOLATILITY_MEAN_PERIOD']:
+                    strategy.parameters[param] = max(10, min(50, int(value * current_volatility)))
+                elif param in ['HIGH_VOLATILITY_THRESHOLD', 'LOW_VOLATILITY_THRESHOLD']:
+                    strategy.parameters[param] = max(0.5, min(2.0, value * current_volatility))
+                elif param == 'GARCH_LAG':
+                    strategy.parameters[param] = max(3, min(7, int(value)))
+                elif param == 'ATR_MULTIPLIER':
+                    strategy.parameters[param] = max(1.5, min(3.0, value * current_volatility))
 
     async def _update_statistical_arbitrage_params(self, strategy: Strategy, market_data: pd.DataFrame):
-        # Adjust z-score threshold based on recent spread volatility
-        spread_volatility = market_data['asset1_close'].sub(market_data['asset2_close']).std()
-        strategy.parameters['Z_SCORE_THRESHOLD'] = max(1.5, min(3.0, spread_volatility * 1.5))
-    
-        # Adjust lookback period based on market regime
+        if not hasattr(strategy, 'parameters'):
+            return
+        
         correlation = market_data['asset1_close'].corr(market_data['asset2_close'])
-        if correlation > 0.8:
-            strategy.parameters['LOOKBACK_PERIOD'] = max(10, strategy.parameters.get('LOOKBACK_PERIOD', 20) - 2)
-        else:
-            strategy.parameters['LOOKBACK_PERIOD'] = min(40, strategy.parameters.get('LOOKBACK_PERIOD', 20) + 2)
-
-    async def _update_volatility_params(self, strategy: Strategy, market_data: pd.DataFrame):
-        current_volatility = self.calculate_current_volatility(market_data)
-        avg_volatility = market_data['close'].pct_change().rolling(window=20).std().mean()
+        volatility = self.calculate_current_volatility(market_data)
+        stat_arb_params = self.config.ADAPTIVE_PARAMS['STATISTICAL_ARBITRAGE_PARAMS']
     
-        strategy.parameters['HIGH_VOLATILITY_THRESHOLD'] = max(1.2, min(2.0, current_volatility / avg_volatility * 1.5))
-        strategy.parameters['LOW_VOLATILITY_THRESHOLD'] = max(0.3, min(0.7, current_volatility / avg_volatility * 0.5))
-        strategy.parameters['VOLATILITY_WINDOW'] = max(10, min(30, int(20 * avg_volatility / current_volatility)))
+        for param, value in stat_arb_params.items():
+            if param in strategy.parameters:
+                if param == 'LOOKBACK_PERIOD':
+                    strategy.parameters[param] = max(10, min(30, int(value * volatility)))
+                elif param == 'Z_SCORE_THRESHOLD':
+                    strategy.parameters[param] = max(1.5, min(3.0, value * volatility))
+                elif param == 'CORRELATION_THRESHOLD':
+                    strategy.parameters[param] = max(0.6, min(0.9, value * correlation))
+                elif param in ['ENTRY_THRESHOLD', 'EXIT_THRESHOLD']:
+                    strategy.parameters[param] = max(0.5, min(2.5, value * volatility))
 
     async def _update_sentiment_params(self, strategy: Strategy, market_data: pd.DataFrame):
-        recent_sentiment = market_data['sentiment_score'].iloc[-10:].mean()
+        if not hasattr(strategy, 'parameters'):
+            return
+        
         sentiment_volatility = market_data['sentiment_score'].std()
+        volume_trend = market_data['volume'].pct_change().mean()
+        sentiment_params = self.config.ADAPTIVE_PARAMS['SENTIMENT_ANALYSIS_PARAMS']
     
-        strategy.parameters['POSITIVE_SENTIMENT_THRESHOLD'] = min(0.8, max(0.6, recent_sentiment + sentiment_volatility))
-        strategy.parameters['NEGATIVE_SENTIMENT_THRESHOLD'] = max(0.2, min(0.4, recent_sentiment - sentiment_volatility))
-        strategy.parameters['SENTIMENT_IMPACT_WEIGHT'] = max(0.1, min(0.5, sentiment_volatility * 2))
-
-    async def _update_momentum_params(self, strategy: Strategy, market_data: pd.DataFrame):
-        returns_volatility = market_data['close'].pct_change().std()
-        momentum = market_data['close'].pct_change(periods=14).iloc[-1]
-    
-        strategy.parameters['MOMENTUM_THRESHOLD'] = max(0.02, min(0.08, returns_volatility * 2))
-        strategy.parameters['ACCELERATION_FACTOR'] = max(0.01, min(0.03, abs(momentum) * 0.5))
-        strategy.parameters['MAX_ACCELERATION'] = max(0.1, min(0.3, returns_volatility * 4))
+        for param, value in sentiment_params.items():
+            if param in strategy.parameters:
+                if param == 'SENTIMENT_WINDOW':
+                    strategy.parameters[param] = max(12, min(36, int(value * sentiment_volatility)))
+                elif param in ['POSITIVE_SENTIMENT_THRESHOLD', 'NEGATIVE_SENTIMENT_THRESHOLD']:
+                    strategy.parameters[param] = max(0.3, min(0.7, value * (1 + sentiment_volatility)))
+                elif param == 'SENTIMENT_IMPACT_WEIGHT':
+                    strategy.parameters[param] = max(0.1, min(0.5, value * volume_trend))
+                elif param == 'NEWS_IMPACT_DECAY':
+                    strategy.parameters[param] = max(0.8, min(0.99, value))
 
     async def _update_options_params(self, strategy: Strategy, market_data: pd.DataFrame):
         implied_volatility = market_data['implied_volatility'].iloc[-1]
@@ -352,51 +445,106 @@ class MarketMaker:
     async def place_orders(self, bid_price, ask_price, buy_amount, sell_amount):
         try:
             active_strategy = self.strategy_manager.get_active_strategy(TimeFrame.SHORT_TERM)
+            market_data = await self.get_recent_data()
+        
+            # Base adjustments using market conditions
+            volatility = self.calculate_current_volatility(market_data)
+            volume_trend = market_data['volume'].pct_change().mean()
+            price_momentum = market_data['close'].pct_change(periods=5).mean()
         
             if 'trend_following' in active_strategy.favored_patterns:
                 trend_strength = active_strategy.parameters['TREND_STRENGTH_THRESHOLD']
-                bid_price *= (1 - trend_strength)
-                ask_price *= (1 + trend_strength)
+                momentum_factor = active_strategy.parameters['MOMENTUM_FACTOR']
+                breakout_level = active_strategy.parameters['BREAKOUT_LEVEL']
+            
+                # Enhanced trend-based adjustments
+                trend_adjustment = trend_strength * (1 + momentum_factor * price_momentum)
+                bid_price *= (1 - trend_adjustment)
+                ask_price *= (1 + trend_adjustment)
+            
+                # Volume-based size adjustments
+                size_multiplier = 1 + (volume_trend * breakout_level)
+                buy_amount *= size_multiplier
+                sell_amount *= size_multiplier
             
             elif 'statistical_arbitrage' in active_strategy.favored_patterns:
                 z_score = active_strategy.parameters['Z_SCORE_THRESHOLD']
-                spread_adjustment = z_score * market_data['spread'].std()
-                bid_price *= (1 - spread_adjustment)
-                ask_price *= (1 + spread_adjustment)
+                correlation = active_strategy.parameters['CORRELATION_THRESHOLD']
+                half_life = active_strategy.parameters['HALF_LIFE']
+            
+                # Spread adjustments based on statistical measures
+                spread_volatility = market_data['spread'].std()
+                spread_adjustment = z_score * spread_volatility * (1 - correlation)
+                mean_reversion_factor = math.exp(-1/half_life)
+            
+                bid_price *= (1 - spread_adjustment * mean_reversion_factor)
+                ask_price *= (1 + spread_adjustment * mean_reversion_factor)
             
             elif 'volatility_clustering' in active_strategy.favored_patterns:
                 vol_threshold = active_strategy.parameters['HIGH_VOLATILITY_THRESHOLD']
-                vol_adjustment = vol_threshold * market_data['volatility'].iloc[-1]
-                buy_amount *= (1 - vol_adjustment)
-                sell_amount *= (1 - vol_adjustment)
+                garch_lag = active_strategy.parameters['GARCH_LAG']
+                atr_multiplier = active_strategy.parameters['ATR_MULTIPLIER']
+            
+                # Volatility-based adjustments
+                vol_adjustment = vol_threshold * volatility * atr_multiplier
+                recent_volatility = market_data['close'].pct_change().rolling(garch_lag).std().iloc[-1]
+            
+                # Adjust sizes inversely to volatility
+                size_scalar = 1 / (1 + recent_volatility)
+                buy_amount *= size_scalar
+                sell_amount *= size_scalar
             
             elif 'sentiment_analysis' in active_strategy.favored_patterns:
                 sentiment_impact = active_strategy.parameters['SENTIMENT_IMPACT_WEIGHT']
                 sentiment_score = market_data['sentiment_score'].iloc[-1]
-                bid_price *= (1 + sentiment_impact * sentiment_score)
-                ask_price *= (1 + sentiment_impact * sentiment_score)
+                news_decay = active_strategy.parameters['NEWS_IMPACT_DECAY']
+            
+                # Sentiment-based price adjustments
+                sentiment_adjustment = sentiment_impact * sentiment_score * news_decay
+                bid_price *= (1 + sentiment_adjustment)
+                ask_price *= (1 + sentiment_adjustment)
             
             elif 'momentum' in active_strategy.favored_patterns:
-                momentum_factor = active_strategy.parameters['ACCELERATION_FACTOR']
-                momentum = market_data['close'].pct_change(periods=active_strategy.parameters['MOMENTUM_PERIOD']).iloc[-1]
-                bid_price *= (1 + momentum_factor * momentum)
-                ask_price *= (1 + momentum_factor * momentum)
+                acceleration = active_strategy.parameters['ACCELERATION_FACTOR']
+                max_acceleration = active_strategy.parameters['MAX_ACCELERATION']
+                rsi_value = self.calculate_rsi(market_data, active_strategy.parameters['RSI_PERIOD'])
+            
+                # Momentum-based adjustments
+                momentum_adjustment = min(acceleration * abs(price_momentum), max_acceleration)
+                rsi_factor = (rsi_value - 50) / 50  # Normalize RSI impact
+            
+                bid_price *= (1 + momentum_adjustment * rsi_factor)
+                ask_price *= (1 + momentum_adjustment * rsi_factor)
             
             elif 'market_making' in active_strategy.favored_patterns:
                 spread = active_strategy.parameters['BID_ASK_SPREAD']
-                bid_price *= (1 - spread)
-                ask_price *= (1 + spread)
+                inventory_target = active_strategy.parameters['INVENTORY_TARGET']
+                current_inventory = self.inventory_manager.get_inventory_ratio()
+            
+                # Inventory-based adjustments
+                inventory_skew = (current_inventory - inventory_target) * spread
+                bid_price *= (1 - spread - inventory_skew)
+                ask_price *= (1 + spread - inventory_skew)
             
             elif 'grid_trading' in active_strategy.favored_patterns:
                 grid_spacing = active_strategy.parameters['GRID_SPACING']
                 grid_levels = active_strategy.parameters['GRID_LEVELS']
+                profit_per_grid = active_strategy.parameters['PROFIT_PER_GRID']
+            
+                # Place multiple orders at grid levels
                 for i in range(grid_levels):
                     grid_bid = bid_price * (1 - i * grid_spacing)
                     grid_ask = ask_price * (1 + i * grid_spacing)
-                    await self._place_grid_orders(grid_bid, grid_ask, buy_amount/grid_levels, sell_amount/grid_levels)
+                    grid_amount = buy_amount / grid_levels * (1 + profit_per_grid * i)
+                
+                    await self._place_grid_orders(grid_bid, grid_ask, grid_amount, grid_amount)
                 return
 
-            # Place the orders with adjusted parameters
+            # Final safety checks and limits
+            bid_price, ask_price = self.apply_price_limits(bid_price, ask_price)
+            buy_amount, sell_amount = self.apply_size_limits(buy_amount, sell_amount)
+
+            # Place the final orders
             buy_order = await self.wallet.place_order(
                 symbol=self.config.SYMBOL,
                 order_type='limit',
@@ -800,4 +948,48 @@ class MarketMaker:
     def adjust_spread(self, base_spread, market_volatility):
         return base_spread * (1 + market_volatility)
 
-    # Add any additional methods or modifications here as needed
+    def apply_price_limits(self, bid_price: Decimal, ask_price: Decimal) -> Tuple[Decimal, Decimal]:
+        current_price = self.get_current_price()
+        max_deviation = current_price * self.config.BASE_PARAMS['MAX_PRICE_DEVIATION']
+    
+        bid_price = max(bid_price, current_price - max_deviation)
+        ask_price = min(ask_price, current_price + max_deviation)
+    
+        # Round to exchange tick size
+        tick_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['precision']['price']))
+        bid_price = round(bid_price / tick_size) * tick_size
+        ask_price = round(ask_price / tick_size) * tick_size
+    
+        return bid_price, ask_price
+
+    def apply_size_limits(self, buy_amount: Decimal, sell_amount: Decimal) -> Tuple[Decimal, Decimal]:
+        min_size = self.config.ADAPTIVE_PARAMS['MIN_ORDER_SIZE']
+        max_size = self.config.ADAPTIVE_PARAMS['MAX_ORDER_SIZE']
+    
+        buy_amount = max(min(buy_amount, max_size), min_size)
+        sell_amount = max(min(sell_amount, max_size), min_size)
+    
+        # Round to exchange lot size
+        lot_size = Decimal(str(self.exchange.markets[self.config.SYMBOL]['precision']['amount']))
+        buy_amount = round(buy_amount / lot_size) * lot_size
+        sell_amount = round(sell_amount / lot_size) * lot_size
+    
+        return buy_amount, sell_amount
+
+    def calculate_rsi(self, market_data: pd.DataFrame, period: int) -> float:
+        delta = market_data['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+    
+        return rsi.iloc[-1]
+
+    def get_current_price(self) -> Decimal:
+        return Decimal(str(self.order_book.get_mid_price()))
+    
+    async def _process_timeframe(self, timeframe: TimeFrame, market_data: pd.DataFrame):
+        signal = await self.strategy_manager.get_weighted_signal(timeframe, market_data)
+        position_size = self.risk_manager.calculate_position_size(timeframe, signal)
+        await self.execute_trades(timeframe, signal, position_size)

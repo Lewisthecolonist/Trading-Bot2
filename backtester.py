@@ -200,7 +200,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
             TimeFrame.SHORT_TERM: {},
             TimeFrame.MID_TERM: {},
             TimeFrame.LONG_TERM: {},
-            TimeFrame.SEASONAL: {}
+            TimeFrame.SEASONAL_TERM: {}
         }
         self.strategy_types = [
             TrendFollowingStrategy,
@@ -223,7 +223,7 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.risk_manager = RiskManager(config)
         self.strategy_optimizer = StrategyOptimizer(config, MarketSimulator, self.strategies)
         self.api_call_manager = APICallManager()
-        self.strategy_manager = StrategyManager(config)
+        self.strategy_manager = StrategyManager(config, use_ai_selection=False)
         self.current_strategy = None  # Initialize current_strategy as None
     async def run(self):
         while not self.stop_event.is_set():

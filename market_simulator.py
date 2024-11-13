@@ -626,3 +626,28 @@ class MarketSimulator:
         kmeans = KMeans(n_clusters=n_clusters, random_state=42)
         clusters = kmeans.fit_predict(features)
         return clusters
+    
+    def _apply_timeframe_effects(self, prices, timeframe):
+        TimeFrame = timeframe
+        effects = {
+            TimeFrame.SHORT_TERM: {
+                'volatility': 0.002,
+                'mean_reversion': 0.3,
+                'trend_strength': 0.1
+            },
+            TimeFrame.MID_TERM: {
+                'volatility': 0.005,
+                'mean_reversion': 0.5,
+                'trend_strength': 0.3
+            },
+            TimeFrame.LONG_TERM: {
+                'volatility': 0.01,
+                'mean_reversion': 0.7,
+                'trend_strength': 0.6
+            },
+            TimeFrame.SEASONAL_TERM: {
+                'volatility': 0.015,
+                'mean_reversion': 0.9,
+                'trend_strength': 0.8
+            }
+        }

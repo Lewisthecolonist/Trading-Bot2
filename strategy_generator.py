@@ -90,22 +90,32 @@ class StrategyGenerator:
         self.logger = logging.getLogger(__name__)
 
     async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
-        strategies = {}
-        try:
-            for time_frame in TimeFrame:
-                prompt = self._create_prompt(market_data, time_frame)
-                response = self.model.generate_content(prompt)
-                
-                # Parse the strategies as a dictionary
-                strategies[time_frame] = self.parse_strategies(response.text, time_frame)
-
-            logging.info("Generated strategies for all time frames")
-        except Exception as e:
-            logging.error(f"Error generating strategies: {str(e)}")
-            for time_frame in TimeFrame:
-                strategies[time_frame] = []
+        strategies = {tf: [] for tf in TimeFrame}
+    
+        for timeframe in TimeFrame:
+            resampled_data = self._resample_data(market_data, timeframe)
+            params = self._get_timeframe_parameters(timeframe)
+            strategies[timeframe] = await self._generate_timeframe_strategies(
+                resampled_data, 
+                params
+            )
+    
         return strategies
 
+    def _resample_data(self, data: pd.DataFrame, timeframe: TimeFrame):
+        resample_rules = {
+            TimeFrame.SHORT_TERM: '1MINS',
+            TimeFrame.MID_TERM: '1h',
+            TimeFrame.LONG_TERM: '1D',
+            TimeFrame.SEASONAL_TERM: '1ME'
+        }
+        return data.resample(resample_rules[timeframe]).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        })
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"
         prompt += f"Asset prices: {market_data['close'].tail().to_dict()}\n"
@@ -147,8 +157,17 @@ class StrategyGenerator:
         )
         return prompt
     def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
+        # Handle empty response
+        if not response_text or response_text.isspace():
+            logging.info("Empty response received, generating default strategies")
+            return [self.create_default_strategy(time_frame)]
+        
+        # Clean and extract JSON
+        cleaned_response = response_text.replace('', '').replace('', '').strip()
+        if not cleaned_response:
+            return [self.create_default_strategy(time_frame)]
+        
         try:
-            cleaned_response = response_text.replace('', '').replace('', '').strip()
             strategy_data = json.loads(cleaned_response)
             strategies = []
         
@@ -163,43 +182,59 @@ class StrategyGenerator:
             ]
         
             for data in strategy_data:
-                # Validate strategy type
-                strategy_type = data.get('favored_patterns', [])[0] if data.get('favored_patterns') else None
-                if not strategy_type or strategy_type not in valid_strategy_types:
+                try:
+                    # Validate strategy type
+                    favored_patterns = data.get('favored_patterns', [])
+                    if isinstance(favored_patterns, str):
+                        favored_patterns = [favored_patterns]
+                    strategy_type = favored_patterns[0] if favored_patterns else None
+                    
+                    if not strategy_type or strategy_type.lower() not in valid_strategy_types:
+                        continue
+                    
+                    strategy_type = strategy_type.lower()
+                    valid_params = VALID_STRATEGY_PARAMETERS.get(strategy_type, [])
+                    
+                    # Normalize and validate parameters
+                    parameters = data.get('parameters', {})
+                    if isinstance(parameters, str):
+                        try:
+                            parameters = json.loads(parameters)
+                        except:
+                            parameters = {}
+                            
+                    filtered_parameters = {
+                        k.lower(): float(v) if isinstance(v, (int, float, str)) and str(v).replace('.','').isdigit() else v 
+                        for k, v in parameters.items() 
+                        if k.lower() in [p.lower() for p in valid_params] or k.lower() == 'initial_capital'
+                    }
+                
+                    # Enforce parameter count requirements
+                    if len(filtered_parameters) < 2:
+                        default_params = self.config.ADAPTIVE_PARAMS[f'{strategy_type.upper()}_PARAMS']
+                        for param in valid_params[:2]:
+                            if param.lower() not in filtered_parameters:
+                                filtered_parameters[param.lower()] = default_params.get(param)
+                    elif len(filtered_parameters) > 5:
+                        filtered_parameters = dict(list(filtered_parameters.items())[:5])
+                
+                    strategy = Strategy(
+                        strategy_name=str(data.get('name', 'Default Strategy')),
+                        description=str(data.get('description', 'Default Description')),
+                        parameters=filtered_parameters,
+                        favored_patterns=[strategy_type],
+                        time_frame=time_frame
+                    )
+                    strategies.append(strategy)
+                except Exception as strategy_error:
+                    logging.warning(f"Error parsing individual strategy: {str(strategy_error)}")
                     continue
-            
-                valid_params = VALID_STRATEGY_PARAMETERS.get(strategy_type, [])
-                filtered_parameters = {
-                    k: v for k, v in data.get('parameters', {}).items() 
-                    if k in valid_params or k == 'INITIAL_CAPITAL'
-                }
-            
-                # Enforce parameter count requirements
-                if len(filtered_parameters) < 2:
-                    default_params = self.config.ADAPTIVE_PARAMS[f'{strategy_type.upper()}_PARAMS']
-                    for param in valid_params[:2]:
-                        if param not in filtered_parameters:
-                            filtered_parameters[param] = default_params.get(param)
-                elif len(filtered_parameters) > 5:
-                    filtered_parameters = dict(list(filtered_parameters.items())[:5])
-            
-                strategy = Strategy(
-                    strategy_name=data.get('name', 'Default Strategy'),
-                    description=data.get('description', 'Default Description'),
-                    parameters=filtered_parameters,
-                    favored_patterns=[strategy_type],
-                    time_frame=time_frame
-                )
-                strategies.append(strategy)
         
-            return strategies
+            return strategies if strategies else [self.create_default_strategy(time_frame)]
+        
         except json.JSONDecodeError:
-            logging.error(f"Invalid JSON response: {response_text}")
-            return []
-        except Exception as e:
-            logging.error(f"Error parsing strategies: {str(e)}")
-            return []
-
+            logging.info("JSON parsing failed, using default strategy")
+            return [self.create_default_strategy(time_frame)]
     def extract_strategy_info(self, text: str) -> List[Dict]:
         # Extract strategy information from raw text
         strategies = []
@@ -229,63 +264,97 @@ class StrategyGenerator:
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
         rs = gain / loss
         return 100 - (100 / (1 + rs))
-    
     def create_default_strategy(self, time_frame):
-        # Define a default strategy for fallback
         if time_frame == TimeFrame.SHORT_TERM:
             return Strategy(
-                strategy_name="Short-Term Strategy",
-                description="Strategy for short-term trading, focusing on quick gains",
+                strategy_name="Short-Term Momentum",
+                description="Short-term momentum trading strategy",
                 parameters={
-                    "indicator": "RSI",
-                    "threshold": 70,  
-                    "stop_loss": 0.02
+                    'MOMENTUM_PERIOD': 14,
+                    'MOMENTUM_THRESHOLD': 0.05,
+                    'RSI_PERIOD': 14,
+                    'RSI_OVERBOUGHT': 70,
+                    'RSI_OVERSOLD': 30
                 },
-                favored_patterns=["Bullish Engulfing", "Bearish Reversal"],
+                favored_patterns=['momentum'],
                 time_frame=TimeFrame.SHORT_TERM
             )
         elif time_frame == TimeFrame.MID_TERM:
             return Strategy(
-                strategy_name="Mid-Term Strategy",
-                description="Strategy for mid-term trading, holding for weeks to months",
+                strategy_name="Mid-Term Mean Reversion",
+                description="Mid-term mean reversion strategy",
                 parameters={
-                    "indicator": "MACD",
-                    "signal_line": 9,  
-                    "take_profit": 0.10,
-                    "stop_loss": 0.05
+                    'MEAN_WINDOW': 20,
+                    'STD_MULTIPLIER': 2.0,
+                    'MEAN_REVERSION_THRESHOLD': 0.05,
+                    'ENTRY_DEVIATION': 0.02,
+                    'EXIT_DEVIATION': 0.01
                 },
-                favored_patterns=["Head and Shoulders", "Double Bottom"],
+                favored_patterns=['mean_reversion'],
                 time_frame=TimeFrame.MID_TERM
             )
         elif time_frame == TimeFrame.LONG_TERM:
             return Strategy(
-                strategy_name="Long-Term Strategy",
-                description="Strategy for long-term investing, holding for years",
+                strategy_name="Long-Term Trend Following",
+                description="Long-term trend following strategy",
                 parameters={
-                    "indicator": "EMA",
-                    "periods": [50, 200],
-                    "rebalancing_period": "Annually"
+                    'MOVING_AVERAGE_SHORT': 50,
+                    'MOVING_AVERAGE_LONG': 200,
+                    'TREND_STRENGTH_THRESHOLD': 0.02,
+                    'TREND_CONFIRMATION_PERIOD': 5
                 },
-                favored_patterns=["Golden Cross", "Ascending Triangle"],
+                favored_patterns=['trend_following'],
                 time_frame=TimeFrame.LONG_TERM
-            )
-        elif time_frame == TimeFrame.SEASONAL_TERM:
-            return Strategy(
-                strategy_name="Seasonal-Term Strategy",
-                description="Strategy based on seasonal trends, adjusted quarterly",
-                parameters={
-                    "indicator": "Seasonal Index",
-                    "adjustment_period": "Quarterly",
-                    "sectors": ["Technology", "Retail"]
-                },
-                favored_patterns=["Seasonal Breakout", "Support Bounce"],
-                time_frame=TimeFrame.SEASONAL_TERM
             )
         else:
             return Strategy(
-                strategy_name="Default Strategy",
-                description="Simple buy-and-hold strategy",
-                parameters={},
-                favored_patterns=[],
-                time_frame=TimeFrame.SHORT_TERM
+                strategy_name="Volatility Clustering",
+                description="Volatility-based trading strategy",
+                parameters={
+                    'VOLATILITY_WINDOW': 20,
+                    'HIGH_VOLATILITY_THRESHOLD': 1.5,
+                    'LOW_VOLATILITY_THRESHOLD': 0.5,
+                    'ATR_MULTIPLIER': 2.0
+                },
+                favored_patterns=['volatility_clustering'],
+                time_frame=time_frame
             )
+        
+    def _get_timeframe_parameters(self, timeframe: TimeFrame):
+        return {
+            TimeFrame.SHORT_TERM: {
+                'data_points': 360,    # 6 hours in minutes
+                'prediction_window': 60,  # 1 hour
+                'sampling_interval': '1min'
+            },
+            TimeFrame.MID_TERM: {
+                'data_points': 21,     # 3 weeks in days
+                'prediction_window': 7,   # 1 week
+                'sampling_interval': '1d'
+            },
+            TimeFrame.LONG_TERM: {
+                'data_points': 12,     # 1 year in months
+                'prediction_window': 1,    # 1 month
+                'sampling_interval': '1ME'
+            },
+            TimeFrame.SEASONAL_TERM: {
+                'data_points': 4,      # 3 years
+                'prediction_window': 1,    # 1 year
+                'sampling_interval': '2ME'
+            }
+        }[timeframe]
+
+    def _generate_timeframe_strategies(self, market_data: pd.DataFrame, timeframe: TimeFrame) -> List[Strategy]:
+        resampled_data = self._resample_data(market_data, timeframe)
+        strategies = []
+    
+        # Generate strategies based on technical indicators
+        for pattern in self.config.TRADING_PATTERNS:
+            strategy = Strategy(
+                timeframe=timeframe,
+                parameters=self._get_strategy_parameters(timeframe),
+                favored_patterns=[pattern]
+            )
+            strategies.append(strategy)
+    
+        return strategies

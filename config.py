@@ -116,21 +116,6 @@ class Config:
             'TREND_STRENGTH_THRESHOLD': 0.02
             },
 
-            'MEAN_REVERSION_PARAMS': {
-                'MEAN_WINDOW': 20,
-                'MEAN_REVERSION_THRESHOLD': 0.05
-            },
-
-            'BREAKOUT_PARAMS': {
-                'BREAKOUT_PERIOD': 20,
-                'BREAKOUT_THRESHOLD': 0.02
-            },
-
-            'VOLATILITY_PARAMS': {
-                'VOLATILITY_WINDOW': 20,
-                'HIGH_VOLATILITY_THRESHOLD': 1.5,
-                'LOW_VOLATILITY_THRESHOLD': 0.5
-            },
             # Extreme market condition parameters
             'BULL_MARKET_THRESHOLD': 2.0,  # 100% cumulative return for bull market
             'BEAR_MARKET_THRESHOLD': 0.5,  # -50% cumulative return for bear market
@@ -239,10 +224,10 @@ class Config:
 
         }
         self.current_strategy = None
-        
-        def get_nonce(self):
-            with self.nonce_lock:
-                return next(self.nonce_counter)
+        self.portfolio_value = self.BASE_PARAMS['INITIAL_CAPITAL']
+    def get_nonce(self):
+        with self.nonce_lock:
+            return next(self.nonce_counter)
         
         # Initialize exchange
         self.exchange = ccxt.kraken({

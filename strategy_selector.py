@@ -16,7 +16,7 @@ class StrategySelector:
             TimeFrame.SHORT_TERM: 1,
             TimeFrame.MID_TERM: 7,
             TimeFrame.LONG_TERM: 90,
-            TimeFrame.SEASONAL: 365
+            TimeFrame.SEASONAL_TERM: 365
         }
 
     @lru_cache(maxsize=100)
@@ -27,27 +27,24 @@ class StrategySelector:
         future = self.prophet_model.make_future_dataframe(periods=self.prediction_horizon[time_frame])
         forecast = self.prophet_model.predict(future)
         return forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-
-    def select_strategies(self, strategies: Dict[TimeFrame, List[Strategy]], strategy_performance: Dict[str, Dict], market_data: pd.DataFrame, asset_position_value: float) -> Dict[TimeFrame, List[Strategy]]:
+    def select_strategies(self, strategies: Dict[TimeFrame, List[Strategy]], strategy_performance: Dict[str, Dict], market_data: Dict,asset_position_value: float) -> Dict[TimeFrame, List[Strategy]]:
+        # Modified to focus on longer-term strategies
         prompt = self._create_prompt(strategies, strategy_performance, market_data, asset_position_value)
-        response = self.model.generate_content(prompt, generation_config=genai.types.GenerationConfig(
-            temperature=0.2,
-            max_output_tokens=1000,
-        ))
-
+        response = self.model.generate_content(prompt)
+        
         selected_strategies = {}
-        for time_frame in TimeFrame:
-            selected_indices = [int(idx) for idx in response.text.split('\n')[time_frame.value].split(',')]
-            selected_strategies[time_frame] = [strategies[time_frame][i] for i in selected_indices if i < len(strategies[time_frame])][:10]
+        for time_frame in [TimeFrame.MID_TERM, TimeFrame.LONG_TERM, TimeFrame.SEASONAL_TERM]:
+            if time_frame in strategies:
+                selected_indices = [int(idx) for idx in response.text.split('\n')[time_frame.value].split(',')]
+                selected_strategies[time_frame] = [strategies[time_frame][i] for i in selected_indices if i < len(strategies[time_frame])][:10]
 
-            # If we don't have enough suitable strategies, generate new ones
-            if len(selected_strategies[time_frame]) < 3:
-                new_strategies = self.generate_new_strategies(time_frame, market_data, asset_position_value, 3 - len(selected_strategies[time_frame]))
-                selected_strategies[time_frame].extend(new_strategies)
-                strategies[time_frame].extend(new_strategies)  # Add new strategies to the existing list
+                # If we don't have enough suitable strategies, generate new ones
+                if len(selected_strategies[time_frame]) < 3:
+                    new_strategies = self.generate_new_strategies(time_frame, market_data, asset_position_value, 3 - len(selected_strategies[time_frame]))
+                    selected_strategies[time_frame].extend(new_strategies)
+                    strategies[time_frame].extend(new_strategies)  # Add new strategies to the existing list
 
         return selected_strategies
-
     def generate_new_strategies(self, time_frame: TimeFrame, market_data: pd.DataFrame, asset_position_value: float, num_strategies: int) -> List[Strategy]:
         prompt = self._create_new_strategy_prompt(time_frame, market_data, asset_position_value, num_strategies)
         response = self.model.generate_content(prompt, generation_config=genai.types.GenerationConfig(
@@ -135,3 +132,27 @@ class StrategySelector:
         signal = macd.ewm(span=signal_period, adjust=False).mean()
         histogram = macd - signal
         return pd.DataFrame({'macd': macd, 'signal': signal, 'histogram': histogram})
+
+    def _get_timeframe_parameters(self, timeframe):
+        return {
+            TimeFrame.SHORT_TERM: {
+                'data_points': 1440,  # Minutes in a day
+                'prediction_window': 60,  # 1 hour
+                'feature_importance_threshold': 0.8
+            },
+            TimeFrame.MID_TERM: {
+                'data_points': 504,   # Hours in 3 weeks
+                'prediction_window': 168,  # 1 week
+                'feature_importance_threshold': 0.7
+            },
+            TimeFrame.LONG_TERM: {
+                'data_points': 365,   # Days in a year
+                'prediction_window': 30,   # 1 month
+                'feature_importance_threshold': 0.6
+            },
+            TimeFrame.SEASONAL_TERM: {
+                'data_points': 1095,  # Days in 3 years
+                'prediction_window': 365,  # 1 year
+                'feature_importance_threshold': 0.5
+            }
+        }[timeframe]

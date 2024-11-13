@@ -83,7 +83,7 @@ class TimeFrame(Enum):
     SHORT_TERM = "short_term"
     MID_TERM = "mid_term"
     LONG_TERM = "long_term"
-    SEASONAL = "seasonal"
+    SEASONAL_TERM = "seasonal_term"
 
 class Strategy:
     def __init__(self, strategy_name: str, description: str, parameters: Dict[str, Any], favored_patterns: List[str], time_frame: TimeFrame):
