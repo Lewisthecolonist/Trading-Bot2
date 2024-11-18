@@ -2,7 +2,7 @@ import json
 import asyncio
 from strategy_generator import StrategyGenerator
 from strategy import Strategy
-from typing import Callable
+from typing import Dict, Callable
 import pandas as pd
 from strategy import TimeFrame
 
@@ -22,7 +22,10 @@ class StrategyFactory:
             with open(self.config_file_path, 'r') as f:
                 content = f.read().strip()
                 if content:
-                    return json.loads(content)
+                    strategy_config = json.loads(content)
+                    # Convert parameters to frozenset
+                    parameters = frozenset(sorted(strategy_config.get('parameters', {}).items()))
+                    return strategy_config
                 return {}
         except (FileNotFoundError, json.JSONDecodeError):
             print(f"Error loading strategy config from {self.config_file_path}. Creating new empty configuration.")
@@ -79,14 +82,14 @@ class StrategyFactory:
             self.save_strategy_config()
             print(f"Strategy {strategy_name} deleted.")
 
-    def create_strategy(self, timeframe: TimeFrame, strategy_type: str):
-        parameters = self._get_timeframe_parameters(timeframe)
+    def create_strategy(self, strategy_config: Dict) -> Strategy:
+        parameters = frozenset(sorted(strategy_config.get('parameters', {}).items()))
         return Strategy(
-            timeframe=timeframe,
+            name=strategy_config['name'],
             parameters=parameters,
-            favored_patterns=[strategy_type]
+            favored_patterns=tuple(strategy_config['favored_patterns']),
+            time_frame=TimeFrame(strategy_config['time_frame'])
         )
-
     def _get_timeframe_parameters(self, timeframe: TimeFrame):
         base_params = self.config.get_base_params()
         timeframe_specific = {

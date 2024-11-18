@@ -824,14 +824,15 @@ class MarketMaker:
 
     def set_wallet(self, wallet):
         self.wallet = wallet
-
     def update_strategy(self, strategy_name: str, strategy: Strategy):
-        self.strategy_manager.update_strategy(strategy_name, strategy)
-        self.logger.info(f"Strategy '{strategy_name}' has been updated.")
+        if not isinstance(strategy, Strategy):
+            raise TypeError("strategy must be a Strategy object")
+        strategy_key = str(sorted(strategy.get_parameters().items()))
 
     def remove_strategy(self, strategy_name: str):
+        if not isinstance(strategy_name, str):
+            raise TypeError("strategy_name must be a string")
         self.strategy_manager.remove_strategy(strategy_name)
-        self.logger.info(f"Strategy '{strategy_name}' has been removed.")
 
     def stop(self):
         if hasattr(self, 'strategy_factory'):

@@ -102,26 +102,28 @@ class StrategyManager:
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
         if await self.api_call_manager.can_make_call():
             try:
-                # Initialize with string-based keys for TimeFrame
-                self.strategies = {tf: {} for tf in TimeFrame}
-            
-                strategies = await strategy_generator.generate_strategies(market_data)
-                for time_frame, time_frame_strategies in strategies.items():
-                    if time_frame_strategies:
-                        for strategy in time_frame_strategies:
-                            self.add_strategy(strategy)
-                        best_strategy = max(time_frame_strategies, key=lambda s: s.performance.get('total_return', 0))
-                        self.set_active_strategy(time_frame, best_strategy)
-    
-                self.logger.info(f"Initialized strategies for all time frames")
+                # Initialize with list-based storage instead of dictionaries
+                self.strategies = {tf: [] for tf in TimeFrame}
+        
+                # Generate strategies
+                generated = await strategy_generator.generate_strategies(market_data)
+        
+                # Process each timeframe with list storage
+                for time_frame in TimeFrame:
+                    if time_frame in generated:
+                        strategy_list = generated[time_frame]
+                        self.strategies[time_frame] = strategy_list
+                
+                        # Find best performing strategy
+                        if strategy_list:
+                            best_strat = max(strategy_list, key=lambda s: getattr(s, 'performance', {}).get('total_return', 0))
+                            self.active_strategies[time_frame] = best_strat
+        
+                self.logger.info("Strategies initialized successfully")
+        
             except Exception as e:
                 self.logger.error(f"Error initializing strategies: {str(e)}")
-                self.strategies = {tf: {} for tf in TimeFrame}
-        else:
-            wait_time = await self.api_call_manager.time_until_reset()
-            print(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
-            await asyncio.sleep(wait_time)
-            return await self.initialize_strategies(strategy_generator, market_data)
+                self.strategies = {tf: [] for tf in TimeFrame}
 
     def add_strategy(self, strategy: Strategy):
         try:
@@ -154,8 +156,17 @@ class StrategyManager:
             self.logger.error(f"Error adding strategy: {str(e)}")
 
     def _compare_parameters(self, params1: Dict, params2: Dict) -> bool:
-        """Compare parameter sets for equality"""
-        return set(params1.keys()) == set(params2.keys())
+        """Compare parameter sets for equality using hashable types"""
+        return frozenset(sorted(params1.items())) == frozenset(sorted(params2.items()))
+
+    def get_active_strategy(self, time_frame: TimeFrame) -> Strategy:
+        # Create a hashable key using frozenset
+        if time_frame in self.active_strategies:
+            params = self.active_strategies[time_frame].get_parameters()
+            strategy_key = frozenset((k, str(v)) for k, v in sorted(params.items()))
+            return self.strategies[time_frame].get(strategy_key)
+        return None
+
     def remove_strategy(self, strategy: Strategy):
         try:
             if (strategy not in self.active_strategies.values() and 
@@ -176,24 +187,21 @@ class StrategyManager:
         if await self.api_call_manager.can_make_call():
             try:
                 # Update existing strategies
-                for strategy in self.get_strategies_by_timeframe(time_frame):
+                strategies_list = self.get_strategies_by_timeframe(time_frame)
+                for strategy in strategies_list:
                     self.update_strategy_performance(strategy, strategy.calculate_performance(market_data))
 
-                # Select new strategies based on configuration
+                # Select new strategies
                 selected_strategies = await self.select_strategies(market_data)
-                
+
                 # Update active strategies
-                for tf, strategy in selected_strategies.items():
-                    self.set_active_strategy(tf, strategy)
+                for tf in TimeFrame:
+                    if tf in selected_strategies:
+                        self.set_active_strategy(tf, selected_strategies[tf])
 
                 await self.api_call_manager.record_call()
             except Exception as e:
                 self.logger.error(f"Error updating strategies: {str(e)}")
-        else:
-            wait_time = await self.api_call_manager.time_until_reset()
-            self.logger.warning(f"API call limit reached. Waiting for {wait_time:.2f} seconds.")
-            await asyncio.sleep(wait_time)
-            return await self.update_strategies(market_data, time_frame, strategy_generator)
 
     def set_active_strategy(self, time_frame: TimeFrame, strategy: Strategy):
         try:
@@ -207,10 +215,6 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Error setting active strategy: {str(e)}")
 
-    def get_active_strategy(self, time_frame: TimeFrame) -> Strategy:
-        if time_frame in self.active_strategies:
-            return self.active_strategies[time_frame]
-        return None
 
     def get_all_strategies(self) -> List[Strategy]:
         return [strategy for strategies in self.strategies.values() for strategy in strategies.values()]
@@ -288,126 +292,117 @@ class StrategyManager:
     
         # For backtesting or when AI selection is disabled
         return self.select_best_strategies(market_data)
-    
     def select_best_strategies(self, market_data: pd.DataFrame, candidate_strategies=None) -> Dict[TimeFrame, Strategy]:
-                strategies_to_evaluate = candidate_strategies or self.strategies
-                strategy_scores = {}
+        # Convert strategies to list format while preserving structure
+        strategies_to_evaluate = {}
+        source_strategies = candidate_strategies if candidate_strategies is not None else self.strategies
+    
+        for timeframe in TimeFrame:
+            strats = source_strategies.get(timeframe, {})
+            if isinstance(strats, dict):
+                strategies_to_evaluate[timeframe] = list(strats.values())
+            else:
+                strategies_to_evaluate[timeframe] = list(strats)
 
-                # Market Analysis
-                volatility = self.calculate_market_volatility(market_data)
-                trend_strength = self.calculate_trend_strength(market_data)
-                volume_profile = self.analyze_volume_profile(market_data)
-                market_efficiency = self.calculate_market_efficiency_ratio(market_data)
-                support_resistance = self.identify_support_resistance_levels(market_data)
-                liquidity_score = self.calculate_liquidity_score(market_data)
+        strategy_scores = []
+    
+        # Market Analysis
+        volatility = self.calculate_market_volatility(market_data)
+        trend_strength = self.calculate_trend_strength(market_data)
+        volume_profile = self.analyze_volume_profile(market_data)
+        market_efficiency = self.calculate_market_efficiency_ratio(market_data)
+        support_resistance = self.identify_support_resistance_levels(market_data)
+        liquidity_score = self.calculate_liquidity_score(market_data)
 
-                for time_frame in TimeFrame:
-                    # Timeframe-specific momentum analysis
-                    momentum_metrics = self.calculate_timeframe_momentum(market_data, time_frame)
+        for time_frame in TimeFrame:
+            momentum_metrics = self.calculate_timeframe_momentum(market_data, time_frame)
         
-                    for strategy in strategies_to_evaluate.get(time_frame, []):
-                        # Performance Metrics
-                        performance_metrics = {
-                            'sharpe': self.calculate_sharpe_ratio(strategy, market_data),
-                            'sortino': self.calculate_sortino_ratio(strategy, market_data),
-                            'calmar': self.calculate_calmar_ratio(strategy, market_data),
-                            'omega': self.calculate_omega_ratio(strategy, market_data),
-                            'recovery': self.calculate_recovery_factor(strategy, market_data)
-                        }
+            for strategy in strategies_to_evaluate.get(time_frame, []):
+                # Performance Metrics
+                performance_metrics = {
+                    'sharpe': self.calculate_sharpe_ratio(strategy, market_data),
+                    'sortino': self.calculate_sortino_ratio(strategy, market_data),
+                    'calmar': self.calculate_calmar_ratio(strategy, market_data),
+                    'omega': self.calculate_omega_ratio(strategy, market_data),
+                    'recovery': self.calculate_recovery_factor(strategy, market_data)
+                }
 
-                        # Risk Metrics
-                        risk_metrics = {
-                            'var': self.calculate_value_at_risk(strategy, market_data),
-                            'max_drawdown': self.calculate_max_drawdown(strategy, market_data),
-                            'tail_risk': self.calculate_tail_risk(strategy, market_data)
-                        }
+                # Risk Metrics
+                risk_metrics = {
+                    'var': self.calculate_value_at_risk(strategy, market_data),
+                    'max_drawdown': self.calculate_max_drawdown(strategy, market_data),
+                    'tail_risk': self.calculate_tail_risk(strategy, market_data)
+                }
 
-                        # Momentum Scoring
-                        momentum_score = self.calculate_momentum_alignment(
-                            strategy,
-                            momentum_metrics['composite_momentum'],
-                            momentum_metrics['breakout_probability'],
-                            momentum_metrics['momentum_persistence']
-                        )
+                # Calculate all scores
+                momentum_score = self.calculate_momentum_alignment(
+                    strategy,
+                    momentum_metrics['composite_momentum'],
+                    momentum_metrics['breakout_probability'],
+                    momentum_metrics['momentum_persistence']
+                )
 
-                        # Market Condition Alignment
-                        market_alignment = self.calculate_market_condition_alignment(
-                            strategy,
-                            volatility,
-                            trend_strength,
-                            market_efficiency,
-                            momentum_metrics,
-                            support_resistance
-                        )
+                market_alignment = self.calculate_market_condition_alignment(
+                    strategy,
+                    volatility,
+                    trend_strength,
+                    market_efficiency,
+                    momentum_metrics,
+                    support_resistance
+                )
 
-                        # Strategy Type Specific Scoring
-                        type_specific_score = self.calculate_type_specific_score(
-                            strategy.favored_patterns[0],
-                            market_data,
-                            volatility,
-                            trend_strength,
-                            volume_profile,
-                            momentum_metrics
-                        )
+                type_specific_score = self.calculate_type_specific_score(
+                    strategy.favored_patterns[0],
+                    market_data,
+                    volatility,
+                    trend_strength,
+                    volume_profile,
+                    momentum_metrics
+                )
 
-                        # Historical Performance Stability
-                        stability_score = self.calculate_performance_stability(strategy)
+                stability_score = self.calculate_performance_stability(strategy)
 
-                        # Liquidity and Volume Analysis
-                        execution_score = self.calculate_execution_quality_score(
-                            strategy,
-                            liquidity_score,
-                            volume_profile,
-                            market_data
-                        )
+                execution_score = self.calculate_execution_quality_score(
+                    strategy,
+                    liquidity_score,
+                    volume_profile,
+                    market_data
+                )
 
-                        # Dynamic Weight Adjustment based on Market Conditions
-                        weights = self.calculate_dynamic_weights(
-                            momentum_metrics,
-                            market_efficiency,
-                            volatility,
-                            strategy.favored_patterns[0]
-                        )
+                weights = self.calculate_dynamic_weights(
+                    momentum_metrics,
+                    market_efficiency,
+                    volatility,
+                    strategy.favored_patterns[0]
+                )
 
-                        # Final Score Calculation
-                        total_score = (
-                            performance_metrics['sharpe'] * weights['performance'] +
-                            performance_metrics['sortino'] * weights['performance'] * 0.5 +
-                            performance_metrics['calmar'] * weights['performance'] * 0.3 +
-                            performance_metrics['omega'] * weights['performance'] * 0.2 +
-                            (1 - risk_metrics['var']) * weights['risk'] +
-                            (1 - risk_metrics['max_drawdown']) * weights['risk'] * 0.7 +
-                            (1 - risk_metrics['tail_risk']) * weights['risk'] * 0.3 +
-                            momentum_score * weights['momentum'] +
-                            market_alignment * weights['market_alignment'] +
-                            type_specific_score * weights['strategy_specific'] +
-                            stability_score * weights['stability'] +
-                            execution_score * weights['execution']
-                        )
+                # Final Score Calculation
+                total_score = (
+                    performance_metrics['sharpe'] * weights['performance'] +
+                    performance_metrics['sortino'] * weights['performance'] * 0.5 +
+                    performance_metrics['calmar'] * weights['performance'] * 0.3 +
+                    performance_metrics['omega'] * weights['performance'] * 0.2 +
+                    (1 - risk_metrics['var']) * weights['risk'] +
+                    (1 - risk_metrics['max_drawdown']) * weights['risk'] * 0.7 +
+                    (1 - risk_metrics['tail_risk']) * weights['risk'] * 0.3 +
+                    momentum_score * weights['momentum'] +
+                    market_alignment * weights['market_alignment'] +
+                    type_specific_score * weights['strategy_specific'] +
+                    stability_score * weights['stability'] +
+                    execution_score * weights['execution']
+                )
 
-                        strategy_scores[(time_frame, strategy)] = total_score
+                strategy_scores.append((time_frame, strategy, total_score))
 
-                # Strategy Selection with Dynamic Thresholds
-                selected_strategies = {}
-                for time_frame in TimeFrame:
-                    timeframe_strategies = [
-                        (s, score) for (tf, s), score in strategy_scores.items() 
-                        if tf == time_frame
-                    ]
+        # Select best strategies
+        selected_strategies = {}
+        for time_frame in TimeFrame:
+            timeframe_scores = [(s, score) for (tf, s, score) in strategy_scores if tf == time_frame]
+            if timeframe_scores:
+                best_strategy = max(timeframe_scores, key=lambda x: x[1])[0]
+                selected_strategies[time_frame] = best_strategy
 
-                    if timeframe_strategies:
-                        threshold = self.calculate_dynamic_threshold(timeframe_strategies)
-                        qualified_strategies = [
-                            (s, score) for s, score in timeframe_strategies 
-                            if score >= threshold
-                        ]
-
-                        if qualified_strategies:
-                            best_strategy = max(qualified_strategies, key=lambda x: x[1])[0]
-                            selected_strategies[time_frame] = best_strategy
-                            self.logger.info(f"Selected {best_strategy.name} for {time_frame} with score {max(qualified_strategies, key=lambda x: x[1])[1]}")
-
-                return selected_strategies
+        return selected_strategies
     def calculate_market_volatility(self, market_data: pd.DataFrame) -> float:
         returns = market_data['close'].pct_change().dropna()
         return returns.std() * np.sqrt(252)

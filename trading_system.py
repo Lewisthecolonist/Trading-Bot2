@@ -39,6 +39,7 @@ class TradingSystem:
         self.backtest_duration = float(config.BASE_PARAMS['BACKTEST_DURATION'])
         self.market_maker_duration = float(config.BASE_PARAMS['MARKET_MAKER_DURATION'])
         self.api_call_manager = APICallManager()
+        asyncio.create_task(self.initialize_api_call_manager())
 
     def get_user_choice(self):
         while True:
@@ -56,6 +57,8 @@ class TradingSystem:
                 print("Invalid input. Please enter a number.")
 
     async def start(self):
+        await self.api_call_manager.load_state()
+        self.api_call_manager.start_api_state_saver()
         self.mode = await self.loop.run_in_executor(self.executor, self.get_user_choice)
         if self.mode in [1, 3]:
             self.backtest_duration = await self.loop.run_in_executor(
@@ -254,4 +257,7 @@ class TradingSystem:
     def calculate_volatility(self, prices):
         returns = pd.Series(prices).pct_change().dropna()
         return float(returns.std() * (252 ** 0.5))  # Annualized volatility
-    
+
+    async def initialize_api_call_manager(self):
+        self.api_call_manager = APICallManager()
+        await self.api_call_manager.load_state()

@@ -23,7 +23,13 @@ class StrategyOptimizer:
             
             # Multi-timeframe backtesting
             performances = []
-            for timeframe in [1, 5, 15, 60]:  # minutes
+            timeframes = {
+                1: '1min',
+                5: '5min',
+                15: '15min',
+                60: '60min'
+                }
+            for timeframe in timeframes:
                 market_data = self.market_simulator.generate_market_data(
                     days=30, 
                     timeframe=timeframe

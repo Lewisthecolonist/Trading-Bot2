@@ -14,7 +14,6 @@ def load_historical_data(filename='historical_data.csv.zip'):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df.set_index('timestamp', inplace=True)
     return df
-
 async def main():
     config = Config()
     historical_data = load_historical_data()

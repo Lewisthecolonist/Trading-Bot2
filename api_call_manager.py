@@ -1,11 +1,16 @@
 import json
 from datetime import datetime, timedelta
-
+import time
+from threading import Thread
+import asyncio
 class APICallManager:
     def __init__(self, daily_limit=49, state_file='api_call_state.json'):
         self.daily_limit = daily_limit
         self.state_file = state_file
-        self.load_state()
+        self.calls_made = 0
+        self.reset_time = None
+    async def initialize(self):
+        await self.load_state()
 
     async def can_make_call(self):
         current_time = datetime.now()
@@ -33,7 +38,7 @@ class APICallManager:
         with open(self.state_file, 'w') as f:
             json.dump(state, f)
 
-    def load_state(self):
+    async def load_state(self):
         try:
             with open(self.state_file, 'r') as f:
                 state = json.load(f)
@@ -48,9 +53,16 @@ class APICallManager:
             elif elapsed_time < timedelta(days=1):
                 calls_to_subtract = int(elapsed_time.total_seconds() / (24 * 3600) * self.daily_limit)
                 self.calls_made = max(0, self.calls_made - calls_to_subtract)
+            await self.save_state()
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            self.calls_made = 0
-            self.reset_time = None
+            async def stop(self):
+                await self.save_state()
+                # Add a pass statement to create an indented block
+                pass
+    def start_api_state_saver(self):
+        async def save_state_loop():
+            while True:
+                await self.save_state()
+                await asyncio.sleep(5)  # Save state every 5 seconds
 
-    def stop(self):
-        self.save_state()
+        asyncio.create_task(save_state_loop())

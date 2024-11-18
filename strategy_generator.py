@@ -104,7 +104,7 @@ class StrategyGenerator:
 
     def _resample_data(self, data: pd.DataFrame, timeframe: TimeFrame):
         resample_rules = {
-            TimeFrame.SHORT_TERM: '1MINS',
+            TimeFrame.SHORT_TERM: '1min',
             TimeFrame.MID_TERM: '1h',
             TimeFrame.LONG_TERM: '1D',
             TimeFrame.SEASONAL_TERM: '1ME'
@@ -350,11 +350,13 @@ class StrategyGenerator:
     
         # Generate strategies based on technical indicators
         for pattern in self.config.TRADING_PATTERNS:
-            strategy = Strategy(
-                timeframe=timeframe,
-                parameters=self._get_strategy_parameters(timeframe),
-                favored_patterns=[pattern]
+            strategy_dict = self._get_strategy_parameters(timeframe)
+            strategy_object = Strategy(
+                name=strategy_dict["name"],
+                parameters=strategy_dict["parameters"],
+                favored_patterns=strategy_dict["favored_patterns"],
+                time_frame=strategy_dict["time_frame"]
             )
-            strategies.append(strategy)
+            strategies.append(strategy_object)
     
         return strategies
