@@ -174,10 +174,10 @@ class MarketMaker:
                 current_time = asyncio.get_event_loop().time()
 
                 # Get data for different timeframes
-                short_term_data = await self.get_market_data('1m')
-                mid_term_data = await self.get_market_data('1h') 
-                long_term_data = await self.get_market_data('1w')
-                seasonal_data = await self.get_market_data('1M')
+                short_term_data = await self.get_market_data('min')
+                mid_term_data = await self.get_market_data('h') 
+                long_term_data = await self.get_market_data('W')
+                seasonal_data = await self.get_market_data('1ME')
 
                 # Process each timeframe independently
                 await self._process_timeframe(TimeFrame.SHORT_TERM, short_term_data)

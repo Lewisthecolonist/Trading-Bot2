@@ -80,10 +80,10 @@ VALID_STRATEGY_PARAMETERS = {
 }
 
 class TimeFrame(Enum):
-    SHORT_TERM = "short_term"
-    MID_TERM = "mid_term"
-    LONG_TERM = "long_term"
-    SEASONAL_TERM = "seasonal_term"
+    SHORT_TERM = 'min'
+    MID_TERM = "D"
+    LONG_TERM = "ME"
+    SEASONAL_TERM = "A"
 
 class Strategy:
     def __init__(self, strategy_name: str, description: str, parameters: Dict[str, Any], favored_patterns: List[str], time_frame: TimeFrame):

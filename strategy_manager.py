@@ -95,10 +95,18 @@ class StrategyManager:
         self.logger = logging.getLogger(__name__)
         self.current_timestamp = datetime.now().timestamp()
         self.average_market_volatility = 0.0
-        self.risk_manager = RiskManager(config)  # Add this line
+        self.risk_manager = RiskManager(config)
         self.use_ai_selection = use_ai_selection
         self.last_ai_selection_time = datetime.now()
-        self.ai_selection_interval = timedelta(hours=24)
+    
+        # Add proper timeframe mapping
+        self.timeframe_mapping = {
+            TimeFrame.SHORT_TERM: min,   # Minutes
+            TimeFrame.MID_TERM: 'D',       # Daily
+            TimeFrame.LONG_TERM: 'ME',      # Monthly
+            TimeFrame.SEASONAL_TERM: 'A'    # Annual
+        }
+
     async def initialize_strategies(self, strategy_generator: StrategyGenerator, market_data: pd.DataFrame):
         if await self.api_call_manager.can_make_call():
             try:
@@ -609,10 +617,10 @@ class StrategyManager:
 
         # Adjust data sampling frequency based on timeframe
         data_sampling = {
-            TimeFrame.SHORT_TERM: '1MINS',
-            TimeFrame.MID_TERM: '1h',
-            TimeFrame.LONG_TERM: '1W',
-            TimeFrame.SEASONAL_TERM: '1ME'
+            TimeFrame.SHORT_TERM: 'min',
+            TimeFrame.MID_TERM: 'h',
+            TimeFrame.LONG_TERM: 'W',
+            TimeFrame.SEASONAL_TERM: 'ME'
         }
 
         periods = lookback_periods[time_frame]

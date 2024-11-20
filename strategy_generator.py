@@ -91,7 +91,7 @@ class StrategyGenerator:
 
     async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
         strategies = {tf: [] for tf in TimeFrame}
-    
+
         for timeframe in TimeFrame:
             resampled_data = self._resample_data(market_data, timeframe)
             params = self._get_timeframe_parameters(timeframe)
@@ -99,16 +99,17 @@ class StrategyGenerator:
                 resampled_data, 
                 params
             )
-    
+
         return strategies
 
     def _resample_data(self, data: pd.DataFrame, timeframe: TimeFrame):
         resample_rules = {
-            TimeFrame.SHORT_TERM: '1min',
-            TimeFrame.MID_TERM: '1h',
-            TimeFrame.LONG_TERM: '1D',
-            TimeFrame.SEASONAL_TERM: '1ME'
+            TimeFrame.SHORT_TERM: "min",     # Minutes/Intraday
+            TimeFrame.MID_TERM: "D",       # Daily
+            TimeFrame.LONG_TERM: "ME",      # Monthly
+            TimeFrame.SEASONAL_TERM: "A"   # Annual
         }
+        
         return data.resample(resample_rules[timeframe]).agg({
             'open': 'first',
             'high': 'max',
@@ -117,6 +118,7 @@ class StrategyGenerator:
             'volume': 'sum'
         })
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
+        return self.config.get('timeframe_parameters', {}).get(TimeFrame.value, {})
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"
         prompt += f"Asset prices: {market_data['close'].tail().to_dict()}\n"
         prompt += f"Volume: {market_data['volume'].tail().to_dict()}\n"
@@ -325,17 +327,17 @@ class StrategyGenerator:
             TimeFrame.SHORT_TERM: {
                 'data_points': 360,    # 6 hours in minutes
                 'prediction_window': 60,  # 1 hour
-                'sampling_interval': '1min'
+                'sampling_interval': 'min'
             },
             TimeFrame.MID_TERM: {
                 'data_points': 21,     # 3 weeks in days
                 'prediction_window': 7,   # 1 week
-                'sampling_interval': '1d'
+                'sampling_interval': 'D'
             },
             TimeFrame.LONG_TERM: {
                 'data_points': 12,     # 1 year in months
                 'prediction_window': 1,    # 1 month
-                'sampling_interval': '1ME'
+                'sampling_interval': 'ME'
             },
             TimeFrame.SEASONAL_TERM: {
                 'data_points': 4,      # 3 years

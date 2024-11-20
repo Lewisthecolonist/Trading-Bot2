@@ -23,8 +23,9 @@ class StrategyFactory:
                 content = f.read().strip()
                 if content:
                     strategy_config = json.loads(content)
-                    # Convert parameters to frozenset
+                    # Convert parameters to frozenset for hashing
                     parameters = frozenset(sorted(strategy_config.get('parameters', {}).items()))
+
                     return strategy_config
                 return {}
         except (FileNotFoundError, json.JSONDecodeError):
@@ -48,11 +49,15 @@ class StrategyFactory:
                 self.update_strategy(strategy.name, strategy)
 
     def update_strategy(self, strategy_name: str, strategy: Strategy):
-        # Store the strategy object directly
-        self.strategies[strategy_name] = strategy
-        self.signal_methods[strategy_name] = self.create_signal_method(strategy)
+        # Create immutable key using tuple
+        strategy_key = (
+            strategy_name,
+            strategy.time_frame,
+            frozenset(strategy.parameters.items())  # Convert dict to frozenset
+        )
+        self.strategies[strategy_key] = strategy
+        self.signal_methods[strategy_key] = self.create_signal_method(strategy)
         self.save_strategy_config()
-
     def create_signal_method(self, strategy: Strategy) -> Callable:
         def signal_method(market_data: pd.DataFrame) -> float:
             return strategy.generate_signal(market_data)
@@ -93,9 +98,9 @@ class StrategyFactory:
     def _get_timeframe_parameters(self, timeframe: TimeFrame):
         base_params = self.config.get_base_params()
         timeframe_specific = {
-            TimeFrame.SHORT_TERM: {'interval': '1m', 'lookback': 60},
-            TimeFrame.MID_TERM: {'interval': '1h', 'lookback': 504},
-            TimeFrame.LONG_TERM: {'interval': '1d', 'lookback': 365},
-            TimeFrame.SEASONAL_TERM: {'interval': '1m', 'lookback': 1460}
+            TimeFrame.SHORT_TERM: {'interval': 'min', 'lookback': 60},
+            TimeFrame.MID_TERM: {'interval': 'h', 'lookback': 504},
+            TimeFrame.LONG_TERM: {'interval': 'D', 'lookback': 365},
+            TimeFrame.SEASONAL_TERM: {'interval': 'ME', 'lookback': 1460}
         }
         return {**base_params, **timeframe_specific[timeframe]}

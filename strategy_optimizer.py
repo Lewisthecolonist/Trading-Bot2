@@ -15,36 +15,39 @@ class StrategyOptimizer:
         self.strategies = strategies
     def optimize_strategy(self, strategy: Strategy) -> Tuple[Strategy, float]:
         param_ranges = self._get_strategy_param_ranges(strategy)
-        
+    
         def objective(params: np.ndarray) -> float:
             temp_strategy = strategy.clone()
             param_dict = self._convert_params_to_dict(params, param_ranges)
             temp_strategy.update_parameters(param_dict)
-            
-            # Multi-timeframe backtesting
+        
             performances = []
             timeframes = {
-                1: '1min',
-                5: '5min',
-                15: '15min',
-                60: '60min'
-                }
-            for timeframe in timeframes:
-                market_data = self.market_simulator.generate_market_data(
-                    days=30, 
-                    timeframe=timeframe
-                )
-                perf = self._evaluate_strategy(temp_strategy, market_data)
-                performances.append(perf)
-            
-            # Weight different timeframe results
+                TimeFrame.SHORT_TERM: 'min',     # Minutes (intraday)
+                TimeFrame.MID_TERM: 'D',       # Daily
+                TimeFrame.LONG_TERM: 'ME',      # Monthly
+                TimeFrame.SEASONAL_TERM: 'A'    # Annual
+            }
+
+            # Evaluate each timeframe category
+            for timeframe_category, periods in timeframes.items():
+                category_performance = []
+                for period in periods:
+                    market_data = self.market_simulator.generate_market_data(
+                        days=365 * 3,  # Extended historical data
+                        timeframe=period
+                    )
+                    perf = self._evaluate_strategy(temp_strategy, market_data)
+                    category_performance.append(perf)
+                performances.append(np.mean(category_performance))
+        
             weighted_performance = (
-                0.4 * performances[0] +  # 1min
-                0.3 * performances[1] +  # 5min
-                0.2 * performances[2] +  # 15min
-                0.1 * performances[3]    # 60min
+                0.4 * performances[0] +  # Short-term weight
+                0.3 * performances[1] +  # Mid-term weight
+                0.2 * performances[2] +  # Long-term weight
+                0.1 * performances[3]    # Seasonal weight
             )
-            
+        
             return -weighted_performance
 
         result = differential_evolution(
