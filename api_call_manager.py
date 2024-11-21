@@ -66,3 +66,8 @@ class APICallManager:
                 await asyncio.sleep(5)  # Save state every 5 seconds
 
         asyncio.create_task(save_state_loop())
+
+    def record_backtest_call(self):
+        if hasattr(self, 'backtest_call_made'):
+            raise Exception("Multiple API calls attempted during backtest")
+        self.backtest_call_made = True

@@ -104,13 +104,13 @@ class StrategyGenerator:
 
     def _resample_data(self, data: pd.DataFrame, timeframe: TimeFrame):
         resample_rules = {
-            TimeFrame.SHORT_TERM: "min",     # Minutes/Intraday
-            TimeFrame.MID_TERM: "D",       # Daily
-            TimeFrame.LONG_TERM: "ME",      # Monthly
-            TimeFrame.SEASONAL_TERM: "A"   # Annual
+            'SHORT_TERM': "1min",     
+            'MID_TERM': "1D",       
+            'LONG_TERM': "1M",      
+            'SEASONAL_TERM': "1Y"   
         }
-        
-        return data.resample(resample_rules[timeframe]).agg({
+    
+        return data.resample(resample_rules[timeframe.name]).agg({
             'open': 'first',
             'high': 'max',
             'low': 'min',

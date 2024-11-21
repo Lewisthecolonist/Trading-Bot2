@@ -226,21 +226,22 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.strategy_manager = StrategyManager(config, use_ai_selection=False)
         self.current_strategy = None  # Initialize current_strategy as None
     async def run(self):
+        initial_strategies = await self.strategy_generator.generate_strategies(self.historical_data)
+        self.strategies = initial_strategies
+    
         while not self.stop_event.is_set():
             for timestamp, row in self.historical_data.iterrows():
                 if self.stop_event.is_set():
                     break
                 market_event = MarketEvent(timestamp, row.to_dict())
                 self.events.append(market_event)
-                await self.process_events()  # Add await here
+                await self.process_events()
                 self.update_portfolio_value(timestamp)
                 self.portfolio_values.append((timestamp, self.portfolio_value))
 
-            if not self.stop_event.is_set():
-                self.reset()  # Reset to start over with historical data
-
         self.calculate_performance_metrics()
-        self.result_queue.put(self.get_results())
+        self.result_queue.put(self.get_results())    
+    
     def stop(self):
         self.stop_event.set()
     
