@@ -190,6 +190,16 @@ class BacktestReport:
 class Backtester(multiprocessing.Process):  # or threading.Thread
     def __init__(self, config, historical_data: pd.DataFrame, result_queue):
         super().__init__()
+        
+        # Validate input data
+        if historical_data.empty:
+            raise ValueError("Historical data is empty")
+            
+        if not all(col in historical_data.columns for col in ['open', 'high', 'low', 'close', 'volume']):
+            raise ValueError("Missing required columns in historical data")
+            
+        print(f"Initializing backtester with {len(historical_data)} data points")
+        
         self.config = config
         self.historical_data = historical_data
         self.events = deque()
@@ -225,22 +235,37 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
         self.api_call_manager = APICallManager()
         self.strategy_manager = StrategyManager(config, use_ai_selection=False)
         self.current_strategy = None  # Initialize current_strategy as None
-    async def run(self):
-        initial_strategies = await self.strategy_generator.generate_strategies(self.historical_data)
+        print("Starting backtest initialization...")
+        start_time = time.time()
+    
+        # Initialize strategies
+        print("Generating initial strategies...")
+        initial_strategies = self.strategy_generator.generate_strategies(self.historical_data)
         self.strategies = initial_strategies
+    
+        print(f"Processing {len(self.historical_data)} data points...")
+        processed_rows = 0
     
         while not self.stop_event.is_set():
             for timestamp, row in self.historical_data.iterrows():
+                processed_rows += 1
+                if processed_rows % 100000 == 0:
+                    print(f"Processed {processed_rows}/{len(self.historical_data)} rows")
+                
                 if self.stop_event.is_set():
                     break
+                
                 market_event = MarketEvent(timestamp, row.to_dict())
                 self.events.append(market_event)
                 await self.process_events()
                 self.update_portfolio_value(timestamp)
                 self.portfolio_values.append((timestamp, self.portfolio_value))
 
+        print("Calculating final metrics...")
         self.calculate_performance_metrics()
-        self.result_queue.put(self.get_results())    
+    
+        print(f"Total backtest time: {time.time() - start_time:.2f} seconds")
+        self.result_queue.put(self.get_results())
     
     def stop(self):
         self.stop_event.set()
@@ -255,8 +280,14 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
             print(f"Error executing trade: {e}")
 
     async def process_events(self):
+        events_processed = 0
         while self.events:
             event = self.events.popleft()
+            events_processed += 1
+            
+            if events_processed % 100 == 0:
+                print(f"Processing event batch {events_processed}")
+                
             if event.type == EventType.MARKET:
                 await self.handle_market_event(event)
             elif event.type == EventType.SIGNAL:
@@ -323,6 +354,9 @@ class Backtester(multiprocessing.Process):  # or threading.Thread
     def update_portfolio_value(self, timestamp: pd.Timestamp):
         current_price = self.historical_data.loc[timestamp, 'close']
         self.portfolio_value = self.cash + self.current_position * current_price
+        if len(self.portfolio_values) % 100000 == 0:
+            current_memory = tracemalloc.get_traced_memory()[0] / 1024 / 1024
+            print(f"Current memory usage: {current_memory:.2f} MB")
     
     async def update_strategy(self, timestamp):
         if not await self.api_call_manager.can_make_call():

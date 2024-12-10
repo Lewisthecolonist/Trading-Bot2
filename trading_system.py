@@ -89,15 +89,14 @@ class TradingSystem:
         await asyncio.gather(*tasks)
 
     async def run_backtester(self):
-        end_time = self.start_time + self.backtest_duration if self.backtest_duration > 0 else None
-        while self.is_running and (end_time is None or time.time() < end_time):
-            self.backtest_results = await self.loop.run_in_executor(self.executor, self.backtester.run)
-            self.results_queue.put(self.backtest_results)
-            await self.process_backtest_results(self.backtest_results)
-            await asyncio.sleep(self.config.BASE_PARAMS['BACKTEST_UPDATE_INTERVAL'])
+        print("Starting backtest...")
+        # Single run
+        self.backtest_results = await self.loop.run_in_executor(self.executor, self.backtester.run)
+        print("Backtest completed, processing results...")
+        self.results_queue.put(self.backtest_results)
+        await self.process_backtest_results(self.backtest_results)
+        print("Results processed")
         await self.stop()
-        print("Backtester completed")
-
     async def run_market_maker(self):
         end_time = self.start_time + self.market_maker_duration if self.market_maker_duration > 0 else None
         while self.is_running and (end_time is None or time.time() < end_time):
@@ -129,53 +128,28 @@ class TradingSystem:
         self.api_call_manager.save_state()
 
     async def process_backtest_results(self, results):
-        if self.mode in [1, 3]:
-            print("Processing backtest results...")
-        
-            # Ensure results is awaited if it's a coroutine
-            if asyncio.iscoroutine(results):
-                results = await results
-        
-            # 1. Calculate and print performance metrics
-            total_return = results['total_return']
-            sharpe_ratio = results['sharpe_ratio']
-            max_drawdown = results['max_drawdown']
-            win_rate = results['win_rate']
+        # Await the results coroutine first
+        results_data = await results
+    
+        if results_data:
+            # Calculate and print performance metrics
+            total_return = results_data['total_return']
+            sharpe_ratio = results_data['sharpe_ratio']
+            max_drawdown = results_data['max_drawdown']
+            win_rate = results_data['win_rate']
         
             print(f"Total Return: {total_return:.2%}")
             print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
             print(f"Max Drawdown: {max_drawdown:.2%}")
             print(f"Win Rate: {win_rate:.2%}")
-        
-            # 2. Analyze trade distribution
-            trade_counts = results['trade_counts']
+
+            # Process trade distribution
+            trade_counts = results_data['trade_counts']
             print("\nTrade Distribution:")
             for strategy, count in trade_counts.items():
                 print(f"{strategy}: {count} trades")
-        
-            # 3. Identify best performing strategies
-            strategy_returns = results['strategy_returns']
-            best_strategy = max(strategy_returns, key=strategy_returns.get)
-            print(f"\nBest performing strategy: {best_strategy} with return: {strategy_returns[best_strategy]:.2%}")
-        
-            # 4. Plot equity curve
-            if 'equity_curve' in results:
-                self.plot_equity_curve(results['equity_curve'])
-        
-            # 5. Save results to file
-            self.save_results_to_file(results)
-        
-            # 6. Update market maker strategy if in mode 3
-            if self.mode == 3:
-                print("Updating market maker strategy based on backtest results...")
-                await self.market_maker.update_strategy(results)
-            
-                # Optionally, you could update specific parameters of the market maker
-                # based on the backtest results. For example:
-                if total_return > 0.05:  # If total return is greater than 5%
-                    await self.market_maker.increase_risk_tolerance()
-                elif total_return < -0.02:  # If total return is less than -2%
-                    await self.market_maker.decrease_risk_tolerance()
+
+            return results_data    
     def plot_equity_curve(self, equity_curve):
         import matplotlib.pyplot as plt
         plt.figure(figsize=(12, 6))
@@ -261,3 +235,15 @@ class TradingSystem:
     async def initialize_api_call_manager(self):
         self.api_call_manager = APICallManager()
         await self.api_call_manager.load_state()
+
+    async def initialize_strategies(self, market_data):
+        try:
+            # Ensure we await the strategy generation
+            strategies = await self.strategy_generator.generate_strategies(market_data)
+            for timeframe, strat_list in strategies.items():
+                for strategy in strat_list:
+                    self.strategy_manager.add_strategy(timeframe, strategy)
+            return strategies
+        except Exception as e:
+            print.error(f"Error initializing strategies: {str(e)}")
+            raise

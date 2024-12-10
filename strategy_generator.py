@@ -89,28 +89,39 @@ class StrategyGenerator:
         self.api_call_manager = APICallManager()
         self.logger = logging.getLogger(__name__)
 
-    async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
-        strategies = {tf: [] for tf in TimeFrame}
 
-        for timeframe in TimeFrame:
-            resampled_data = self._resample_data(market_data, timeframe)
-            params = self._get_timeframe_parameters(timeframe)
-            strategies[timeframe] = await self._generate_timeframe_strategies(
-                resampled_data, 
-                params
-            )
-
-        return strategies
-
-    def _resample_data(self, data: pd.DataFrame, timeframe: TimeFrame):
+    def _resample_data(self, data, timeframe):
+        # Use TimeFrame enum values as keys
         resample_rules = {
-            'SHORT_TERM': "1min",     
-            'MID_TERM': "1D",       
-            'LONG_TERM': "1M",      
-            'SEASONAL_TERM': "1Y"   
+            TimeFrame.SHORT_TERM: '1h',
+            TimeFrame.MID_TERM: '4h',
+            TimeFrame.LONG_TERM: '1D',
+            TimeFrame.SEASONAL_TERM: '1W'
         }
+
+        # If timeframe is already a TimeFrame enum, use it directly
+        if isinstance(timeframe, TimeFrame):
+            return data.resample(resample_rules[timeframe]).agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            })
     
-        return data.resample(resample_rules[timeframe.name]).agg({
+        # If timeframe is a string, convert it to TimeFrame enum
+        if isinstance(timeframe, str):
+            timeframe_enum = TimeFrame[timeframe.upper()]
+            return data.resample(resample_rules[timeframe_enum]).agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            })
+
+        # For any other case, default to SHORT_TERM
+        return data.resample(resample_rules[TimeFrame.SHORT_TERM]).agg({
             'open': 'first',
             'high': 'max',
             'low': 'min',
@@ -118,7 +129,6 @@ class StrategyGenerator:
             'volume': 'sum'
         })
     def _create_prompt(self, market_data: pd.DataFrame, time_frame: TimeFrame) -> str:
-        return self.config.get('timeframe_parameters', {}).get(TimeFrame.value, {})
         prompt = f"Given the following market data for {time_frame.value} analysis:\n"
         prompt += f"Asset prices: {market_data['close'].tail().to_dict()}\n"
         prompt += f"Volume: {market_data['volume'].tail().to_dict()}\n"
@@ -158,6 +168,7 @@ class StrategyGenerator:
             ']'
         )
         return prompt
+
     def parse_strategies(self, response_text: str, time_frame: TimeFrame) -> List[Strategy]:
         # Handle empty response
         if not response_text or response_text.isspace():
@@ -185,6 +196,10 @@ class StrategyGenerator:
         
             for data in strategy_data:
                 try:
+                    # Validate strategy name
+                    if 'name' not in data:
+                        continue
+                    
                     # Validate strategy type
                     favored_patterns = data.get('favored_patterns', [])
                     if isinstance(favored_patterns, str):
@@ -221,7 +236,7 @@ class StrategyGenerator:
                         filtered_parameters = dict(list(filtered_parameters.items())[:5])
                 
                     strategy = Strategy(
-                        strategy_name=str(data.get('name', 'Default Strategy')),
+                        strategy_name=str(data['name']),
                         description=str(data.get('description', 'Default Description')),
                         parameters=filtered_parameters,
                         favored_patterns=[strategy_type],
@@ -323,6 +338,12 @@ class StrategyGenerator:
             )
         
     def _get_timeframe_parameters(self, timeframe: TimeFrame):
+        # Convert timeframe to TimeFrame enum if it's not already
+        if isinstance(timeframe, str):
+            timeframe = TimeFrame[timeframe]
+        elif isinstance(timeframe, dict):
+            timeframe = TimeFrame[timeframe.get('timeframe', 'SHORT_TERM')]
+
         return {
             TimeFrame.SHORT_TERM: {
                 'data_points': 360,    # 6 hours in minutes
@@ -344,21 +365,42 @@ class StrategyGenerator:
                 'prediction_window': 1,    # 1 year
                 'sampling_interval': '2ME'
             }
-        }[timeframe]
+        }[timeframe]    
+    
+    async def generate_strategies(self, market_data: pd.DataFrame) -> Dict[TimeFrame, List[Strategy]]:
+        strategies = {tf: [] for tf in TimeFrame}
 
-    def _generate_timeframe_strategies(self, market_data: pd.DataFrame, timeframe: TimeFrame) -> List[Strategy]:
-        resampled_data = self._resample_data(market_data, timeframe)
-        strategies = []
-    
-        # Generate strategies based on technical indicators
-        for pattern in self.config.TRADING_PATTERNS:
-            strategy_dict = self._get_strategy_parameters(timeframe)
-            strategy_object = Strategy(
-                name=strategy_dict["name"],
-                parameters=strategy_dict["parameters"],
-                favored_patterns=strategy_dict["favored_patterns"],
-                time_frame=strategy_dict["time_frame"]
+        for timeframe in TimeFrame:
+            resampled_data = self._resample_data(market_data, timeframe)
+            params = self._get_timeframe_parameters(timeframe)
+            # Add await here since _generate_timeframe_strategies is now async
+            strategies[timeframe] = await self._generate_timeframe_strategies(
+                resampled_data, 
+                timeframe
             )
-            strategies.append(strategy_object)
+
+        return strategies
+
+    async def _generate_timeframe_strategies(self, market_data: pd.DataFrame, timeframe: TimeFrame) -> List[Strategy]:
+        # Create AI prompt based on market data
+        prompt = self._create_prompt(market_data, timeframe)
     
+        # Check if we can make an API call
+        if await self.api_call_manager.can_make_call():
+            try:
+                # Generate strategies using Gemini AI
+                response = self.model.generate_content(prompt)
+                await self.api_call_manager.record_call()
+            
+                # Parse the AI response into strategy objects
+                strategies = self.parse_strategies(response.text, timeframe)
+            
+                if strategies:
+                    return strategies
+                
+            except Exception as e:
+                self.logger.warning(f"AI strategy generation failed: {e}")
+    
+        # Fallback to default strategies if AI fails or API limit reached
+            return [self.create_default_strategy(timeframe)]        
         return strategies

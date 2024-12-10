@@ -4,7 +4,7 @@ import time
 from threading import Thread
 import asyncio
 class APICallManager:
-    def __init__(self, daily_limit=49, state_file='api_call_state.json'):
+    def __init__(self, daily_limit=100000000, state_file='api_call_state.json'):
         self.daily_limit = daily_limit
         self.state_file = state_file
         self.calls_made = 0
@@ -63,7 +63,7 @@ class APICallManager:
         async def save_state_loop():
             while True:
                 await self.save_state()
-                await asyncio.sleep(5)  # Save state every 5 seconds
+                await asyncio.sleep(1)  # Save state every 5 seconds
 
         asyncio.create_task(save_state_loop())
 

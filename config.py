@@ -44,7 +44,7 @@ class Config:
             'MIN_HEDGE_RATIO': 0.1,
             'MAX_HEDGE_RATIO': 0.9,
             'BACKTEST_DURATION': 0,
-            'BACKTEST_UPDATE_INTERVAL': 600,
+            'BACKTEST_UPDATE_INTERVAL': 30,
             # MarketMaker specific parameters
             'MAX_SPREAD': Decimal('0.01'),  # 1% maximum spread
             'MAX_PRICE_DEVIATION': Decimal('0.05'),  # 5% maximum deviation from current price
